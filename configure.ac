@@ -150,6 +150,7 @@ AM_CONDITIONAL(ENABLE_DRM_COMPOSITOR, test x$enable_drm_compositor = xyes)
 if test x$enable_drm_compositor = xyes; then
   AC_DEFINE([BUILD_DRM_COMPOSITOR], [1], [Build the DRM compositor])
   PKG_CHECK_MODULES(DRM_COMPOSITOR, [libudev >= 136 libdrm >= 2.4.30 gbm mtdev >= 1.1.0])
+  PKG_CHECK_MODULES(DRM_COMPOSITOR, [libudev >= 136 libdrm >= 2.4.30 gbm libinput >= 0.0.90])
 fi
 
 PKG_CHECK_MODULES(COMPOSITOR, [$COMPOSITOR_MODULES])
@@ -179,7 +180,7 @@ AM_CONDITIONAL(ENABLE_RPI_COMPOSITOR, test "x$enable_rpi_compositor" = "xyes")
 have_bcm_host="no"
 if test "x$enable_rpi_compositor" = "xyes"; then
   AC_DEFINE([BUILD_RPI_COMPOSITOR], [1], [Build the compositor for Raspberry Pi])
-  PKG_CHECK_MODULES(RPI_COMPOSITOR, [libudev >= 136 mtdev >= 1.1.0])
+  PKG_CHECK_MODULES(RPI_COMPOSITOR, [libudev >= 136 libinput >= 0.0.90])
   PKG_CHECK_MODULES(RPI_BCM_HOST, [bcm_host],
                     [have_bcm_host="yes"
                      AC_DEFINE([HAVE_BCM_HOST], [1], [have Raspberry Pi BCM headers])],
@@ -194,7 +195,7 @@ AM_CONDITIONAL([ENABLE_FBDEV_COMPOSITOR],
                [test x$enable_fbdev_compositor = xyes])
 AS_IF([test x$enable_fbdev_compositor = xyes], [
   AC_DEFINE([BUILD_FBDEV_COMPOSITOR], [1], [Build the fbdev compositor])
-  PKG_CHECK_MODULES([FBDEV_COMPOSITOR], [libudev >= 136 mtdev >= 1.1.0])
+  PKG_CHECK_MODULES([FBDEV_COMPOSITOR], [libudev >= 136 libinput >= 0.0.90])
 ])
 
 AC_ARG_ENABLE([rdp-compositor], [  --enable-rdp-compositor],,
