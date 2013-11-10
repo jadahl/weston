@@ -174,7 +174,6 @@ drm_backend_la_SOURCES =			\
 	udev-seat.h				\
 	evdev.c					\
 	evdev.h					\
-	evdev-touchpad.c			\
 	libbacklight.c				\
 	libbacklight.h
 
@@ -223,8 +222,7 @@ rpi_backend_la_SOURCES =			\
 	udev-seat.c				\
 	udev-seat.h				\
 	evdev.c					\
-	evdev.h					\
-	evdev-touchpad.c
+	evdev.h
 
 if ENABLE_EGL
 rpi_backend_la_LIBADD += $(EGL_LIBS)
@@ -263,8 +261,7 @@ fbdev_backend_la_SOURCES = \
 	udev-seat.c \
 	udev-seat.h \
 	evdev.c \
-	evdev.h \
-	evdev-touchpad.c
+	evdev.h
 endif
 
 if ENABLE_RDP_COMPOSITOR

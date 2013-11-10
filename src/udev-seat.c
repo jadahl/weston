@@ -51,6 +51,7 @@ device_added(struct udev_device *udev_device, struct udev_input *input)
 	const char *calibration_values;
 	int fd;
 	struct udev_seat *seat;
+	float calibration[6];
 
 	device_seat = udev_device_get_property_value(udev_device, "ID_SEAT");
 	if (!device_seat)
@@ -82,13 +83,9 @@ device_added(struct udev_device *udev_device, struct udev_input *input)
 	}
 
 	device = evdev_device_create(&seat->base, devnode, fd);
-	if (device == EVDEV_UNHANDLED_DEVICE) {
+	if (device == NULL) {
 		weston_launcher_close(c->launcher, fd);
 		weston_log("not using input device '%s'.\n", devnode);
-		return 0;
-	} else if (device == NULL) {
-		weston_launcher_close(c->launcher, fd);
-		weston_log("failed to create input device '%s'.\n", devnode);
 		return 0;
 	}
 
@@ -98,20 +95,20 @@ device_added(struct udev_device *udev_device, struct udev_input *input)
 
 	if (calibration_values && sscanf(calibration_values,
 					 "%f %f %f %f %f %f",
-					 &device->abs.calibration[0],
-					 &device->abs.calibration[1],
-					 &device->abs.calibration[2],
-					 &device->abs.calibration[3],
-					 &device->abs.calibration[4],
-					 &device->abs.calibration[5]) == 6) {
-		device->abs.apply_calibration = 1;
+					 &calibration[0],
+					 &calibration[1],
+					 &calibration[2],
+					 &calibration[3],
+					 &calibration[4],
+					 &calibration[5]) == 6) {
 		weston_log ("Applying calibration: %f %f %f %f %f %f\n",
-			    device->abs.calibration[0],
-			    device->abs.calibration[1],
-			    device->abs.calibration[2],
-			    device->abs.calibration[3],
-			    device->abs.calibration[4],
-			    device->abs.calibration[5]);
+			    calibration[0],
+			    calibration[1],
+			    calibration[2],
+			    calibration[3],
+			    calibration[4],
+			    calibration[5]);
+		libinput_device_calibrate(device->device, calibration);
 	}
 
 	wl_list_insert(seat->devices_list.prev, &device->link);
@@ -218,8 +215,8 @@ evdev_udev_handler(int fd, uint32_t mask, void *data)
 		wl_list_for_each(seat, &input->compositor->seat_list, base.link) {
 			wl_list_for_each_safe(device, next, &seat->devices_list, link)
 				if (!strcmp(device->devnode, devnode)) {
-					weston_log("input device %s, %s removed\n",
-							device->devname, device->devnode);
+					weston_log("input device %s removed\n",
+						   device->devnode);
 					weston_launcher_close(input->compositor->launcher,
 							      device->fd);
 					evdev_device_destroy(device);
