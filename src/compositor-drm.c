@@ -1841,7 +1841,7 @@ setup_output_seat_constraint(struct drm_compositor *ec,
 	if (strcmp(s, "") != 0) {
 		struct udev_seat *seat;
 
-		seat = udev_seat_get_named(&ec->base, s);
+		seat = udev_seat_get_named(&ec->input, s);
 		if (seat)
 			seat->base.output = output;
 
@@ -2399,7 +2399,7 @@ session_notify(struct wl_listener *listener, void *data)
 		compositor->state = ec->prev_state;
 		drm_compositor_set_modes(ec);
 		weston_compositor_damage_all(compositor);
-		udev_input_enable(&ec->input, ec->udev);
+		udev_input_enable(&ec->input);
 	} else {
 		weston_log("deactivating session\n");
 		udev_input_disable(&ec->input);
