@@ -53,17 +53,151 @@ evdev_led_update(struct evdev_device *device, enum weston_led weston_leds)
 	libinput_device_led_update(device->device, leds);
 }
 
+static void
+handle_keyboard_key(struct evdev_device *device,
+		    struct libinput_event_keyboard_key *key_event)
+{
+	notify_key(device->seat,
+		   key_event->time,
+		   key_event->key,
+		   key_event->state,
+		   STATE_UPDATE_AUTOMATIC);
+}
+
+static void
+handle_pointer_motion(struct evdev_device *device,
+		      struct libinput_event_pointer_motion *motion_event)
+{
+	notify_motion(device->seat,
+		      motion_event->time,
+		      motion_event->dx,
+		      motion_event->dy);
+}
+
+static void
+handle_pointer_motion_absolute(
+	struct evdev_device *device,
+	struct libinput_event_pointer_motion_absolute *motion_absolute_event)
+{
+	wl_fixed_t x = motion_absolute_event->x;
+	wl_fixed_t y = motion_absolute_event->y;
+
+	weston_output_transform_coordinate(device->output, x, y, &x, &y);
+	notify_motion_absolute(device->seat,
+			       motion_absolute_event->time,
+			       x, y);
+}
+
+static void
+handle_pointer_button(struct evdev_device *device,
+		      struct libinput_event_pointer_button *button_event)
+{
+	notify_button(device->seat,
+		      button_event->time,
+		      button_event->button,
+		      button_event->state);
+}
+
+static void
+handle_pointer_axis(struct evdev_device *device,
+		    struct libinput_event_pointer_axis *axis_event)
+{
+	notify_axis(device->seat,
+		    axis_event->time,
+		    axis_event->axis,
+		    axis_event->value);
+}
+
+static void
+handle_touch_touch(struct evdev_device *device,
+		   struct libinput_event_touch_touch *touch_event)
+{
+	struct weston_seat *master = device->seat;
+	wl_fixed_t x = touch_event->x;
+	wl_fixed_t y = touch_event->y;
+	uint32_t slot = touch_event->slot;
+	uint32_t seat_slot;
+
+	switch (touch_event->touch_type) {
+	case LIBINPUT_TOUCH_TYPE_DOWN:
+		seat_slot = ffs(~master->slot_map) - 1;
+		device->mt_slots[slot] = seat_slot;
+		master->slot_map |= 1 << seat_slot;
+		break;
+	case LIBINPUT_TOUCH_TYPE_UP:
+		seat_slot = device->mt_slots[slot];
+		master->slot_map &= ~(1 << seat_slot);
+		break;
+	default:
+		seat_slot = device->mt_slots[slot];
+		break;
+	}
+
+	weston_output_transform_coordinate(device->output,
+					   x, y, &x, &y);
+	notify_touch(device->seat,
+		     touch_event->time,
+		     seat_slot,
+		     x, y,
+		     touch_event->touch_type);
+}
+
+static void
+process_event(struct evdev_device *device,
+	      struct libinput_event *event)
+{
+	switch (event->type) {
+	case LIBINPUT_EVENT_KEYBOARD_KEY:
+		handle_keyboard_key(
+			device,
+			(struct libinput_event_keyboard_key *) event);
+		break;
+	case LIBINPUT_EVENT_POINTER_MOTION:
+		handle_pointer_motion(
+			device,
+			(struct libinput_event_pointer_motion *) event);
+		break;
+	case LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE:
+		handle_pointer_motion_absolute(
+			device,
+			(struct libinput_event_pointer_motion_absolute *) event);
+		break;
+	case LIBINPUT_EVENT_POINTER_BUTTON:
+		handle_pointer_button(
+			device,
+			(struct libinput_event_pointer_button *) event);
+		break;
+	case LIBINPUT_EVENT_POINTER_AXIS:
+		handle_pointer_axis(
+			device,
+			(struct libinput_event_pointer_axis *) event);
+		break;
+	case LIBINPUT_EVENT_TOUCH_TOUCH:
+		handle_touch_touch(
+			device,
+			(struct libinput_event_touch_touch *) event);
+		break;
+	default:
+		weston_log("unknown libinput event %d\n", event->type);
+	}
+}
+
 static int
 evdev_device_data(int fd, uint32_t mask, void *data)
 {
 	struct weston_compositor *ec;
 	struct evdev_device *device = data;
+	struct libinput_event *event;
 
 	ec = device->seat->compositor;
 	if (!ec->session_active)
 		return 1;
 
 	libinput_device_dispatch(device->device);
+	while ((event = libinput_device_get_event(device->device))) {
+		process_event(device, event);
+		free(event);
+	}
 
 	return 0;
 }
@@ -129,8 +263,15 @@ static int
 dispatch_libinput_callback(int fd, uint32_t mask, void *data)
 {
 	struct libinput_fd_handle *handle = data;
+	struct evdev_device *device = handle->device;
+	struct libinput_event *event;
 
 	handle->callback(fd, handle->device->device);
+
+	while ((event = libinput_device_get_event(device->device))) {
+		process_event(device, event);
+		free(event);
+	}
 
 	return 1;
 }
@@ -190,113 +331,6 @@ static const struct libinput_device_interface device_interface = {
 	device_lost,
 };
 
-static void
-keyboard_notify_key(uint32_t time,
-		    uint32_t key,
-		    enum libinput_keyboard_key_state state,
-		    void *data)
-{
-	struct evdev_device *device = data;
-	enum wl_keyboard_key_state key_state =
-		(enum wl_keyboard_key_state) state;
-
-	notify_key(device->seat, time, key, key_state, STATE_UPDATE_AUTOMATIC);
-}
-
-static const struct libinput_keyboard_listener keyboard_listener = {
-	keyboard_notify_key,
-};
-
-static void
-pointer_notify_motion(uint32_t time,
-		      li_fixed_t dx,
-		      li_fixed_t dy,
-		      void *data)
-{
-	struct evdev_device *device = data;
-
-	notify_motion(device->seat, time, dx, dy);
-}
-
-static void
-pointer_notify_motion_absolute(uint32_t time,
-			       li_fixed_t x,
-			       li_fixed_t y,
-			       void *data)
-{
-	struct evdev_device *device = data;
-
-	weston_output_transform_coordinate(device->output, x, y, &x, &y);
-	notify_motion_absolute(device->seat, time, x, y);
-}
-
-static void
-pointer_notify_button(uint32_t time,
-		      int32_t button,
-		      enum libinput_pointer_button_state state,
-		      void *data)
-{
-	struct evdev_device *device = data;
-	enum wl_pointer_button_state button_state =
-		(enum wl_pointer_button_state) state;
-
-	notify_button(device->seat, time, button, button_state);
-}
-
-static void
-pointer_notify_axis(uint32_t time,
-		    enum libinput_pointer_axis axis,
-		    li_fixed_t value,
-		    void *data)
-{
-	struct evdev_device *device = data;
-
-	notify_axis(device->seat, time, (uint32_t) axis, value);
-}
-
-static const struct libinput_pointer_listener pointer_listener = {
-	pointer_notify_motion,
-	pointer_notify_motion_absolute,
-	pointer_notify_button,
-	pointer_notify_axis,
-};
-
-static void
-touch_notify_touch(uint32_t time,
-		   int32_t slot,
-		   li_fixed_t x,
-		   li_fixed_t y,
-		   enum libinput_touch_type touch_type,
-		   void *data)
-{
-	struct evdev_device *device = data;
-	struct weston_seat *master = device->seat;
-	uint32_t seat_slot;
-
-	switch (touch_type) {
-	case LIBINPUT_TOUCH_TYPE_DOWN:
-		seat_slot = ffs(~master->slot_map) - 1;
-		device->mt_slots[slot] = seat_slot;
-		master->slot_map |= 1 << seat_slot;
-		break;
-	case LIBINPUT_TOUCH_TYPE_UP:
-		seat_slot = device->mt_slots[slot];
-		master->slot_map &= ~(1 << seat_slot);
-		break;
-	default:
-		seat_slot = device->mt_slots[slot];
-		break;
-	}
-
-	weston_output_transform_coordinate(device->output,
-					   x, y, &x, &y);
-	notify_touch(device->seat, time, seat_slot, x, y, (int) touch_type);
-}
-
-static const struct libinput_touch_listener touch_listener = {
-	touch_notify_touch,
-};
-
 struct evdev_device *
 evdev_device_create(struct weston_seat *seat, const char *path, int device_fd)
 {
@@ -323,16 +357,6 @@ evdev_device_create(struct weston_seat *seat, const char *path, int device_fd)
 		free(device);
 		return NULL;
 	}
-
-	libinput_device_set_keyboard_listener(device->device,
-					      &keyboard_listener,
-					      device);
-	libinput_device_set_pointer_listener(device->device,
-					     &pointer_listener,
-					     device);
-	libinput_device_set_touch_listener(device->device,
-					   &touch_listener,
-					   device);
 
 	device->source = wl_event_loop_add_fd(ec->input_loop, device->fd,
 					      WL_EVENT_READABLE,
