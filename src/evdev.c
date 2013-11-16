@@ -69,40 +69,40 @@ evdev_device_data(int fd, uint32_t mask, void *data)
 }
 
 static void
-register_capability(enum libinput_seat_capability capability,
+register_capability(enum libinput_device_capability capability,
 		    void *data)
 {
 	struct evdev_device *device = data;
 	struct weston_seat *seat = device->seat;
 
 	switch (capability) {
-	case LIBINPUT_SEAT_CAP_KEYBOARD:
+	case LIBINPUT_DEVICE_CAP_KEYBOARD:
 		weston_seat_init_keyboard(seat, NULL);
 		break;
-	case LIBINPUT_SEAT_CAP_POINTER:
+	case LIBINPUT_DEVICE_CAP_POINTER:
 		weston_seat_init_pointer(seat);
 		break;
-	case LIBINPUT_SEAT_CAP_TOUCH:
+	case LIBINPUT_DEVICE_CAP_TOUCH:
 		weston_seat_init_touch(seat);
 		break;
 	};
 }
 
 static void
-unregister_capability(enum libinput_seat_capability capability,
+unregister_capability(enum libinput_device_capability capability,
 		      void *data)
 {
 	struct evdev_device *device = data;
 	struct weston_seat *seat = device->seat;
 
 	switch (capability) {
-	case LIBINPUT_SEAT_CAP_KEYBOARD:
+	case LIBINPUT_DEVICE_CAP_KEYBOARD:
 		weston_seat_release_keyboard(seat);
 		break;
-	case LIBINPUT_SEAT_CAP_POINTER:
+	case LIBINPUT_DEVICE_CAP_POINTER:
 		weston_seat_release_pointer(seat);
 		break;
-	case LIBINPUT_SEAT_CAP_TOUCH:
+	case LIBINPUT_DEVICE_CAP_TOUCH:
 		weston_seat_release_touch(seat);
 		break;
 	};
