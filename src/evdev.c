@@ -234,21 +234,6 @@ evdev_device_process_event(struct libinput_event *event)
 	}
 }
 
-static void
-get_current_screen_dimensions(int *width,
-			      int *height,
-			      void *data)
-{
-	struct evdev_device *device = data;
-
-	*width = device->output->current_mode->width;
-	*height = device->output->current_mode->height;
-}
-
-static const struct libinput_device_interface device_interface = {
-	get_current_screen_dimensions,
-};
-
 struct evdev_device *
 evdev_device_create(struct libinput *libinput,
 		    struct weston_seat *seat,
@@ -274,7 +259,6 @@ evdev_device_create(struct libinput *libinput,
 	device->device = libinput_device_create_evdev(libinput,
 						      path,
 						      device_fd,
-						      &device_interface,
 						      device);
 	if (device->device == NULL) {
 		free(device);
