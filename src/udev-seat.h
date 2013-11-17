@@ -36,6 +36,8 @@ struct udev_seat {
 };
 
 struct udev_input {
+	struct libinput *libinput;
+	struct wl_event_source *libinput_source;
 	struct udev_monitor *udev_monitor;
 	struct wl_event_source *udev_monitor_source;
 	char *seat_id;

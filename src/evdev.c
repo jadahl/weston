@@ -142,10 +142,12 @@ handle_touch_touch(struct evdev_device *device,
 		     touch_event->touch_type);
 }
 
-static void
-process_event(struct evdev_device *device,
-	      struct libinput_event *event)
+void
+evdev_device_process_event(struct libinput_event *event)
 {
+	struct evdev_device *device =
+		libinput_device_get_user_data(event->device);
+
 	switch (event->type) {
 	case LIBINPUT_EVENT_KEYBOARD_KEY:
 		handle_keyboard_key(
@@ -180,26 +182,6 @@ process_event(struct evdev_device *device,
 	default:
 		weston_log("unknown libinput event %d\n", event->type);
 	}
-}
-
-static int
-evdev_device_data(int fd, uint32_t mask, void *data)
-{
-	struct weston_compositor *ec;
-	struct evdev_device *device = data;
-	struct libinput_event *event;
-
-	ec = device->seat->compositor;
-	if (!ec->session_active)
-		return 1;
-
-	libinput_device_dispatch(device->device);
-	while ((event = libinput_device_get_event(device->device))) {
-		process_event(device, event);
-		free(event);
-	}
-
-	return 0;
 }
 
 static void
@@ -256,82 +238,11 @@ get_current_screen_dimensions(int *width,
 	*height = device->output->current_mode->height;
 }
 
-struct libinput_fd_handle {
-	struct wl_event_source *source;
-	libinput_fd_callback callback;
-	struct evdev_device *device;
-};
-
-static int
-dispatch_libinput_callback(int fd, uint32_t mask, void *data)
-{
-	struct libinput_fd_handle *handle = data;
-	struct evdev_device *device = handle->device;
-	struct libinput_event *event;
-
-	handle->callback(fd, handle->device->device);
-
-	while ((event = libinput_device_get_event(device->device))) {
-		process_event(device, event);
-		free(event);
-	}
-
-	return 1;
-}
-
-static struct libinput_fd_handle *
-add_fd(int fd, libinput_fd_callback callback, void *data)
-{
-	struct evdev_device *device = data;
-	struct libinput_fd_handle *handle;
-	struct wl_event_loop *loop =
-		wl_display_get_event_loop(device->seat->compositor->wl_display);
-
-	handle = malloc(sizeof *handle);
-	if (!handle)
-		return NULL;
-
-	handle->callback = callback;
-	handle->device = device;
-	handle->source = wl_event_loop_add_fd(loop,
-					      fd,
-					      WL_EVENT_READABLE,
-					      dispatch_libinput_callback,
-					      handle);
-	if (!handle->source) {
-		free(handle);
-		return NULL;
-	}
-
-	return handle;
-}
-
-static void
-remove_fd(struct libinput_fd_handle *handle, void *data)
-{
-	wl_event_source_remove(handle->source);
-	free(handle);
-}
-
-static void
-device_lost(void *data)
-{
-	struct evdev_device *device = data;
-
-	wl_event_source_remove(device->source);
-	device->source = NULL;
-}
-
 static const struct libinput_device_interface device_interface = {
 	register_capability,
 	unregister_capability,
 
 	get_current_screen_dimensions,
-
-	add_fd,
-	remove_fd,
-
-	device_lost,
 };
 
 static void
@@ -363,7 +274,10 @@ evdev_device_set_output(struct evdev_device *device,
 }
 
 struct evdev_device *
-evdev_device_create(struct weston_seat *seat, const char *path, int device_fd)
+evdev_device_create(struct libinput *libinput,
+		    struct weston_seat *seat,
+		    const char *path,
+		    int device_fd)
 {
 	struct evdev_device *device;
 	struct weston_compositor *ec;
@@ -378,7 +292,8 @@ evdev_device_create(struct weston_seat *seat, const char *path, int device_fd)
 	device->seat = seat;
 	wl_list_init(&device->link);
 
-	device->device = libinput_device_create_evdev(path,
+	device->device = libinput_device_create_evdev(libinput,
+						      path,
 						      device_fd,
 						      &device_interface,
 						      device);
@@ -387,24 +302,12 @@ evdev_device_create(struct weston_seat *seat, const char *path, int device_fd)
 		return NULL;
 	}
 
-	device->source = wl_event_loop_add_fd(ec->input_loop, device->fd,
-					      WL_EVENT_READABLE,
-					      evdev_device_data, device);
-	if (device->source == NULL)
-		goto err;
-
 	return device;
-
-err:
-	evdev_device_destroy(device);
-	return NULL;
 }
 
 void
 evdev_device_destroy(struct evdev_device *device)
 {
-	if (device->source)
-		wl_event_source_remove(device->source);
 	wl_list_remove(&device->link);
 
 	libinput_device_destroy(device->device);
