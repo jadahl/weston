@@ -306,11 +306,28 @@ udev_input_disable(struct udev_input *input)
 }
 
 static void
-process_event(struct udev_input *input, struct libinput_event *event)
+process_event(struct libinput_event *event)
 {
-	if (event->device)
+	if (event->device) {
 		evdev_device_process_event(event);
+	}
 	/* Only have device events so far. */
+}
+
+int
+dispatch_libinput(struct libinput *libinput)
+{
+	struct libinput_event *event;
+
+	if (libinput_dispatch(libinput) != 0)
+		fprintf(stderr, "libinput: Failed to dispatch libinput\n");
+
+	while ((event = libinput_get_event(libinput))) {
+		process_event(event);
+		free(event);
+	}
+
+	return 0;
 }
 
 static int
@@ -318,16 +335,8 @@ libinput_source_dispatch(int fd, uint32_t mask, void *data)
 {
 	struct udev_input *input = data;
 	struct libinput *libinput = input->libinput;
-	struct libinput_event *event;
 
-	if (libinput_dispatch(libinput) != 0)
-		return 1;
-	while ((event = libinput_get_event(libinput))) {
-		process_event(input, event);
-		free(event);
-	}
-
-	return 0;
+	return dispatch_libinput(libinput) != 0;
 }
 
 int

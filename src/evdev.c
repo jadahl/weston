@@ -54,6 +54,46 @@ evdev_led_update(struct evdev_device *device, enum weston_led weston_leds)
 }
 
 static void
+handle_register_capability(
+	struct evdev_device *device,
+	struct libinput_event_device_register_capability *event)
+{
+	struct weston_seat *seat = device->seat;
+
+	switch (event->capability) {
+	case LIBINPUT_DEVICE_CAP_KEYBOARD:
+		weston_seat_init_keyboard(seat, NULL);
+		break;
+	case LIBINPUT_DEVICE_CAP_POINTER:
+		weston_seat_init_pointer(seat);
+		break;
+	case LIBINPUT_DEVICE_CAP_TOUCH:
+		weston_seat_init_touch(seat);
+		break;
+	};
+}
+
+static void
+handle_unregister_capability(
+	struct evdev_device *device,
+	struct libinput_event_device_unregister_capability *event)
+{
+	struct weston_seat *seat = device->seat;
+
+	switch (event->capability) {
+	case LIBINPUT_DEVICE_CAP_KEYBOARD:
+		weston_seat_release_keyboard(seat);
+		break;
+	case LIBINPUT_DEVICE_CAP_POINTER:
+		weston_seat_release_pointer(seat);
+		break;
+	case LIBINPUT_DEVICE_CAP_TOUCH:
+		weston_seat_release_touch(seat);
+		break;
+	};
+}
+
+static void
 handle_keyboard_key(struct evdev_device *device,
 		    struct libinput_event_keyboard_key *key_event)
 {
@@ -149,6 +189,16 @@ evdev_device_process_event(struct libinput_event *event)
 		libinput_device_get_user_data(event->device);
 
 	switch (event->type) {
+	case LIBINPUT_EVENT_DEVICE_REGISTER_CAPABILITY:
+		handle_register_capability(
+			device,
+			(struct libinput_event_device_register_capability *) event);
+		break;
+	case LIBINPUT_EVENT_DEVICE_UNREGISTER_CAPABILITY:
+		handle_unregister_capability(
+			device,
+			(struct libinput_event_device_unregister_capability *) event);
+		break;
 	case LIBINPUT_EVENT_KEYBOARD_KEY:
 		handle_keyboard_key(
 			device,
@@ -185,46 +235,6 @@ evdev_device_process_event(struct libinput_event *event)
 }
 
 static void
-register_capability(enum libinput_device_capability capability,
-		    void *data)
-{
-	struct evdev_device *device = data;
-	struct weston_seat *seat = device->seat;
-
-	switch (capability) {
-	case LIBINPUT_DEVICE_CAP_KEYBOARD:
-		weston_seat_init_keyboard(seat, NULL);
-		break;
-	case LIBINPUT_DEVICE_CAP_POINTER:
-		weston_seat_init_pointer(seat);
-		break;
-	case LIBINPUT_DEVICE_CAP_TOUCH:
-		weston_seat_init_touch(seat);
-		break;
-	};
-}
-
-static void
-unregister_capability(enum libinput_device_capability capability,
-		      void *data)
-{
-	struct evdev_device *device = data;
-	struct weston_seat *seat = device->seat;
-
-	switch (capability) {
-	case LIBINPUT_DEVICE_CAP_KEYBOARD:
-		weston_seat_release_keyboard(seat);
-		break;
-	case LIBINPUT_DEVICE_CAP_POINTER:
-		weston_seat_release_pointer(seat);
-		break;
-	case LIBINPUT_DEVICE_CAP_TOUCH:
-		weston_seat_release_touch(seat);
-		break;
-	};
-}
-
-static void
 get_current_screen_dimensions(int *width,
 			      int *height,
 			      void *data)
@@ -236,9 +246,6 @@ get_current_screen_dimensions(int *width,
 }
 
 static const struct libinput_device_interface device_interface = {
-	register_capability,
-	unregister_capability,
-
 	get_current_screen_dimensions,
 };
 
@@ -255,6 +262,7 @@ evdev_device_create(struct libinput *libinput,
 	if (device == NULL)
 		return NULL;
 
+	device->libinput = libinput;
 	device->devnode = strdup(path);
 	device->fd = device_fd;
 	ec = seat->compositor;
@@ -273,6 +281,8 @@ evdev_device_create(struct libinput *libinput,
 		return NULL;
 	}
 
+	dispatch_libinput(device->libinput);
+
 	return device;
 }
 
@@ -281,6 +291,8 @@ evdev_device_destroy(struct evdev_device *device)
 {
 	wl_list_remove(&device->link);
 
+	libinput_device_terminate(device->device);
+	dispatch_libinput(device->libinput);
 	libinput_device_destroy(device->device);
 
 	free(device->devnode);
