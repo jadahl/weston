@@ -343,6 +343,23 @@ libinput_source_dispatch(int fd, uint32_t mask, void *data)
 	return dispatch_libinput(libinput) != 0;
 }
 
+static void
+get_current_screen_dimensions(struct libinput_device *libinput_device,
+			      int *width,
+			      int *height,
+			      void *user_data)
+{
+	struct evdev_device *device =
+		libinput_device_get_user_data(libinput_device);
+
+	*width = device->output->current_mode->width;
+	*height = device->output->current_mode->height;
+}
+
+const struct libinput_interface libinput_interface = {
+	get_current_screen_dimensions,
+};
+
 int
 udev_input_init(struct udev_input *input, struct weston_compositor *c, struct udev *udev,
 		const char *seat_id)
@@ -352,7 +369,7 @@ udev_input_init(struct udev_input *input, struct weston_compositor *c, struct ud
 
 	memset(input, 0, sizeof *input);
 
-	input->libinput = libinput_create();
+	input->libinput = libinput_create(&libinput_interface, input);
 	if (!input->libinput)
 		return -1;
 
