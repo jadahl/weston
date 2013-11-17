@@ -29,6 +29,8 @@
 #include <wayland-util.h>
 #include <libinput.h>
 
+#include "compositor.h"
+
 #define MAX_SLOTS 16
 
 enum evdev_device_seat_capability {
@@ -39,6 +41,7 @@ enum evdev_device_seat_capability {
 
 struct evdev_device {
 	struct weston_seat *seat;
+	struct libinput *libinput;
 	struct libinput_device *device;
 	struct wl_list link;
 	struct weston_output *output;
@@ -70,5 +73,8 @@ evdev_device_destroy(struct evdev_device *device);
 void
 evdev_notify_keyboard_focus(struct weston_seat *seat,
 			    struct wl_list *evdev_devices);
+
+int
+dispatch_libinput(struct libinput *libinput);
 
 #endif /* EVDEV_H */
