@@ -41,7 +41,6 @@ struct evdev_device {
 	struct weston_seat *seat;
 	struct libinput_device *device;
 	struct wl_list link;
-	struct wl_event_source *source;
 	struct weston_output *output;
 	char *devnode;
 	uint32_t mt_slots[MAX_SLOTS];
@@ -53,7 +52,13 @@ void
 evdev_led_update(struct evdev_device *device, enum weston_led leds);
 
 struct evdev_device *
-evdev_device_create(struct weston_seat *seat, const char *path, int device_fd);
+evdev_device_create(struct libinput *libinput,
+		    struct weston_seat *seat,
+		    const char *path,
+		    int device_fd);
+
+void
+evdev_device_process_event(struct libinput_event *event);
 
 void
 evdev_device_destroy(struct evdev_device *device);

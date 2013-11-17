@@ -26,6 +26,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <libinput.h>
 
 #include "compositor.h"
 #include "launcher-util.h"
@@ -43,6 +44,7 @@ udev_seat_destroy(struct udev_seat *seat);
 static int
 device_added(struct udev_device *udev_device, struct udev_input *input)
 {
+	struct libinput *libinput = input->libinput;
 	struct weston_compositor *c;
 	struct evdev_device *device;
 	struct weston_output *output;
@@ -82,7 +84,7 @@ device_added(struct udev_device *udev_device, struct udev_input *input)
 		return 0;
 	}
 
-	device = evdev_device_create(&seat->base, devnode, fd);
+	device = evdev_device_create(libinput, &seat->base, devnode, fd);
 	if (device == NULL) {
 		weston_launcher_close(c->launcher, fd);
 		weston_log("not using input device '%s'.\n", devnode);
@@ -303,12 +305,54 @@ udev_input_disable(struct udev_input *input)
 	udev_input_remove_devices(input);
 }
 
+static void
+process_event(struct udev_input *input, struct libinput_event *event)
+{
+	if (event->device)
+		evdev_device_process_event(event);
+	/* Only have device events so far. */
+}
+
+static int
+libinput_source_dispatch(int fd, uint32_t mask, void *data)
+{
+	struct udev_input *input = data;
+	struct libinput *libinput = input->libinput;
+	struct libinput_event *event;
+
+	if (libinput_dispatch(libinput) != 0)
+		return 1;
+	while ((event = libinput_get_event(libinput))) {
+		process_event(input, event);
+		free(event);
+	}
+
+	return 0;
+}
 
 int
 udev_input_init(struct udev_input *input, struct weston_compositor *c, struct udev *udev,
 		const char *seat_id)
 {
+	struct wl_event_loop *loop = wl_display_get_event_loop(c->wl_display);
+	int fd;
+
 	memset(input, 0, sizeof *input);
+
+	input->libinput = libinput_create();
+	if (!input->libinput)
+		return -1;
+
+	fd = libinput_get_fd(input->libinput);
+
+	input->libinput_source = wl_event_loop_add_fd(loop,
+						      fd,
+						      WL_EVENT_READABLE,
+						      libinput_source_dispatch,
+						      input);
+	if (!input->libinput_source)
+		return -1;
+
 	input->seat_id = strdup(seat_id);
 	input->compositor = c;
 	if (udev_input_enable(input, udev) < 0)
@@ -325,6 +369,10 @@ void
 udev_input_destroy(struct udev_input *input)
 {
 	struct udev_seat *seat, *next;
+
+	wl_event_source_remove(input->libinput_source);
+	libinput_destroy(input->libinput);
+
 	udev_input_disable(input);
 	wl_list_for_each_safe(seat, next, &input->compositor->seat_list, base.link)
 		udev_seat_destroy(seat);
