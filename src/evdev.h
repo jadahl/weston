@@ -57,11 +57,9 @@ evdev_led_update(struct evdev_device *device, enum weston_led leds);
 
 struct evdev_device *
 evdev_device_create(struct libinput *libinput,
-		    struct weston_seat *seat,
-		    const char *path,
-		    int device_fd);
+		    struct libinput_device *libinput_device);
 
-void
+int
 evdev_device_process_event(struct libinput_event *event);
 
 void
