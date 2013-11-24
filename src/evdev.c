@@ -182,11 +182,12 @@ handle_touch_touch(struct evdev_device *device,
 		     touch_event->touch_type);
 }
 
-void
+int
 evdev_device_process_event(struct libinput_event *event)
 {
 	struct evdev_device *device =
-		libinput_device_get_user_data(event->device);
+		libinput_device_get_user_data(event->target.device);
+	int handled = 1;
 
 	switch (event->type) {
 	case LIBINPUT_EVENT_DEVICE_REGISTER_CAPABILITY:
@@ -230,42 +231,37 @@ evdev_device_process_event(struct libinput_event *event)
 			(struct libinput_event_touch_touch *) event);
 		break;
 	default:
+		handled = 0;
 		weston_log("unknown libinput event %d\n", event->type);
 	}
+
+	return handled;
 }
 
 struct evdev_device *
 evdev_device_create(struct libinput *libinput,
-		    struct weston_seat *seat,
-		    const char *path,
-		    int device_fd)
+		    struct libinput_device *libinput_device)
 {
 	struct evdev_device *device;
 	struct weston_compositor *ec;
+	struct libinput_seat *libinput_seat =
+		libinput_device_get_seat(libinput_device);
+	struct weston_seat *seat = libinput_seat_get_user_data(libinput_seat);
 
 	device = zalloc(sizeof *device);
 	if (device == NULL)
 		return NULL;
 
 	device->libinput = libinput;
-	device->devnode = strdup(path);
-	device->fd = device_fd;
 	ec = seat->compositor;
 	device->output =
 		container_of(ec->output_list.next, struct weston_output, link);
 	device->seat = seat;
 	wl_list_init(&device->link);
+	device->device = libinput_device;
 
-	device->device = libinput_device_create_evdev(libinput,
-						      path,
-						      device_fd,
-						      device);
-	if (device->device == NULL) {
-		free(device);
-		return NULL;
-	}
-
-	dispatch_libinput(device->libinput);
+	libinput_device_set_user_data(libinput_device, device);
+	libinput_device_ref(libinput_device);
 
 	return device;
 }
@@ -274,11 +270,7 @@ void
 evdev_device_destroy(struct evdev_device *device)
 {
 	wl_list_remove(&device->link);
-
-	libinput_device_terminate(device->device);
-	dispatch_libinput(device->libinput);
-	libinput_device_destroy(device->device);
-
+	libinput_device_unref(device->device);
 	free(device->devnode);
 	free(device->output_name);
 	free(device);
