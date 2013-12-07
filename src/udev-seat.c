@@ -171,7 +171,7 @@ process_events(struct udev_input *input)
 
 	while ((event = libinput_get_event(input->libinput))) {
 		process_event(event);
-		free(event);
+		libinput_event_destroy(event);
 	}
 }
 
