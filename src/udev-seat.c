@@ -290,8 +290,8 @@ udev_input_init(struct udev_input *input, struct weston_compositor *c, struct ud
 
 	input->compositor = c;
 
-	input->libinput = libinput_create_udev(&libinput_interface, input,
-					       udev, seat_id);
+	input->libinput = libinput_create_from_udev(&libinput_interface, input,
+						    udev, seat_id);
 	if (!input->libinput) {
 		return -1;
 	}
