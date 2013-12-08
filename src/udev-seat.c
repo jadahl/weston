@@ -107,7 +107,7 @@ udev_input_disable(struct udev_input *input)
 static int
 udev_input_process_event(struct libinput_event *event)
 {
-	struct libinput *libinput = event->target.libinput;
+	struct libinput *libinput = libinput_event_get_target(event).libinput;
 	struct libinput_seat *libinput_seat;
 	struct libinput_device *libinput_device;
 	struct udev_input *input = libinput_get_user_data(libinput);
@@ -119,28 +119,34 @@ udev_input_process_event(struct libinput_event *event)
 	struct libinput_event_added_device *added_device_event;
 	struct libinput_event_removed_device *removed_device_event;
 
-	switch (event->type) {
+	switch (libinput_event_get_type(event)) {
 	case LIBINPUT_EVENT_ADDED_SEAT:
 		added_seat_event = (struct libinput_event_added_seat *) event;
-		libinput_seat = added_seat_event->seat;
+		libinput_seat =
+			libinput_event_added_seat_get_seat(added_seat_event);
 		seat = udev_seat_create(input, libinput_seat);
 		break;
 	case LIBINPUT_EVENT_REMOVED_SEAT:
 		removed_seat_event = (struct libinput_event_removed_seat *) event;
-		libinput_seat = removed_seat_event->seat;
+		libinput_seat =
+		       libinput_event_removed_seat_get_seat(removed_seat_event);
 		seat = libinput_seat_get_user_data(libinput_seat);
 		udev_seat_destroy(seat);
 		break;
 	case LIBINPUT_EVENT_ADDED_DEVICE:
 		added_device_event =
 			(struct libinput_event_added_device *) event;
-		libinput_device = added_device_event->device;
+		libinput_device =
+			libinput_event_added_device_get_device(
+				added_device_event);
 		device_added(input, libinput_device);
 		break;
 	case LIBINPUT_EVENT_REMOVED_DEVICE:
 		removed_device_event =
 			(struct libinput_event_removed_device *) event;
-		libinput_device = removed_device_event->device;
+		libinput_device =
+			libinput_event_removed_device_get_device(
+				removed_device_event);
 		device = libinput_device_get_user_data(libinput_device);
 		evdev_device_destroy(device);
 		break;
