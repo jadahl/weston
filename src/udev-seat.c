@@ -314,7 +314,7 @@ udev_input_destroy(struct udev_input *input)
 }
 
 static void
-drm_led_update(struct weston_seat *seat_base, enum weston_led leds)
+udev_seat_led_update(struct weston_seat *seat_base, enum weston_led leds)
 {
 	struct udev_seat *seat = (struct udev_seat *) seat_base;
 	struct evdev_device *device;
@@ -351,7 +351,7 @@ udev_seat_create(struct udev_input *input,
 		return NULL;
 	seat_name = libinput_seat_get_name(libinput_seat);
 	weston_seat_init(&seat->base, c, seat_name);
-	seat->base.led_update = drm_led_update;
+	seat->base.led_update = udev_seat_led_update;
 	seat->seat = libinput_seat;
 
 	seat->output_create_listener.notify = notify_output_create;
