@@ -41,7 +41,6 @@ enum evdev_device_seat_capability {
 
 struct evdev_device {
 	struct weston_seat *seat;
-	struct libinput *libinput;
 	struct libinput_device *device;
 	struct wl_list link;
 	struct weston_output *output;
@@ -55,8 +54,8 @@ void
 evdev_led_update(struct evdev_device *device, enum weston_led leds);
 
 struct evdev_device *
-evdev_device_create(struct libinput *libinput,
-		    struct libinput_device *libinput_device);
+evdev_device_create(struct libinput_device *libinput_device,
+		    struct weston_seat *seat);
 
 int
 evdev_device_process_event(struct libinput_event *event);

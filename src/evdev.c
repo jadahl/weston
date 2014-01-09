@@ -269,20 +269,16 @@ evdev_device_process_event(struct libinput_event *event)
 }
 
 struct evdev_device *
-evdev_device_create(struct libinput *libinput,
-		    struct libinput_device *libinput_device)
+evdev_device_create(struct libinput_device *libinput_device,
+		    struct weston_seat *seat)
 {
 	struct evdev_device *device;
 	struct weston_compositor *ec;
-	struct libinput_seat *libinput_seat =
-		libinput_device_get_seat(libinput_device);
-	struct weston_seat *seat = libinput_seat_get_user_data(libinput_seat);
 
 	device = zalloc(sizeof *device);
 	if (device == NULL)
 		return NULL;
 
-	device->libinput = libinput;
 	ec = seat->compositor;
 	device->output =
 		container_of(ec->output_list.next, struct weston_output, link);

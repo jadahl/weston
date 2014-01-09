@@ -39,30 +39,32 @@ static const char default_seat_name[] = "default";
 static void
 process_events(struct udev_input *input);
 static struct udev_seat *
-udev_seat_create(struct udev_input *input,
-		 struct libinput_seat *libinput_seat);
+udev_seat_create(struct udev_input *input, const char *seat_name);
 static void
 udev_seat_destroy(struct udev_seat *seat);
 
 static void
 device_added(struct udev_input *input, struct libinput_device *libinput_device)
 {
-	struct libinput *libinput = input->libinput;
 	struct weston_compositor *c;
 	struct evdev_device *device;
 	struct weston_output *output;
+	const char *seat_name;
 	const char *output_name;
 	struct libinput_seat *libinput_seat;
 	struct udev_seat *seat;
 
 	c = input->compositor;
+	libinput_seat = libinput_device_get_seat(libinput_device);
 
-	device = evdev_device_create(libinput, libinput_device);
-	if (device == NULL)
+	seat_name = libinput_seat_get_name(libinput_seat);
+	seat = udev_seat_get_named(input, seat_name);
+	if (!seat)
 		return;
 
-	libinput_seat = libinput_device_get_seat(libinput_device);
-	seat = libinput_seat_get_user_data(libinput_seat);
+	device = evdev_device_create(libinput_device, &seat->base);
+	if (device == NULL)
+		return;
 
 	wl_list_insert(seat->devices_list.prev, &device->link);
 
@@ -108,31 +110,14 @@ static int
 udev_input_process_event(struct libinput_event *event)
 {
 	struct libinput *libinput = libinput_event_get_target(event).libinput;
-	struct libinput_seat *libinput_seat;
 	struct libinput_device *libinput_device;
 	struct udev_input *input = libinput_get_user_data(libinput);
-	struct udev_seat *seat;
 	struct evdev_device *device;
 	int handled = 1;
-	struct libinput_event_added_seat *added_seat_event;
-	struct libinput_event_removed_seat *removed_seat_event;
 	struct libinput_event_added_device *added_device_event;
 	struct libinput_event_removed_device *removed_device_event;
 
 	switch (libinput_event_get_type(event)) {
-	case LIBINPUT_EVENT_ADDED_SEAT:
-		added_seat_event = (struct libinput_event_added_seat *) event;
-		libinput_seat =
-			libinput_event_added_seat_get_seat(added_seat_event);
-		seat = udev_seat_create(input, libinput_seat);
-		break;
-	case LIBINPUT_EVENT_REMOVED_SEAT:
-		removed_seat_event = (struct libinput_event_removed_seat *) event;
-		libinput_seat =
-		       libinput_event_removed_seat_get_seat(removed_seat_event);
-		seat = libinput_seat_get_user_data(libinput_seat);
-		udev_seat_destroy(seat);
-		break;
 	case LIBINPUT_EVENT_ADDED_DEVICE:
 		added_device_event =
 			(struct libinput_event_added_device *) event;
@@ -338,30 +323,23 @@ notify_output_create(struct wl_listener *listener, void *data)
 }
 
 static struct udev_seat *
-udev_seat_create(struct udev_input *input,
-		 struct libinput_seat *libinput_seat)
+udev_seat_create(struct udev_input *input, const char *seat_name)
 {
 	struct weston_compositor *c = input->compositor;
 	struct udev_seat *seat;
-	const char *seat_name;
 
 	seat = zalloc(sizeof *seat);
 
 	if (!seat)
 		return NULL;
-	seat_name = libinput_seat_get_name(libinput_seat);
 	weston_seat_init(&seat->base, c, seat_name);
 	seat->base.led_update = udev_seat_led_update;
-	seat->seat = libinput_seat;
 
 	seat->output_create_listener.notify = notify_output_create;
 	wl_signal_add(&c->output_created_signal,
 		      &seat->output_create_listener);
 
 	wl_list_init(&seat->devices_list);
-
-	libinput_seat_ref(libinput_seat);
-	libinput_seat_set_user_data(libinput_seat, seat);
 
 	return seat;
 }
@@ -374,19 +352,18 @@ udev_seat_destroy(struct udev_seat *seat)
 		notify_keyboard_focus_out(&seat->base);
 	weston_seat_release(&seat->base);
 	wl_list_remove(&seat->output_create_listener.link);
-	libinput_seat_unref(seat->seat);
 	free(seat);
 }
 
 struct udev_seat *
-udev_seat_get_named(struct weston_compositor *c, const char *seat_name)
+udev_seat_get_named(struct udev_input *input, const char *seat_name)
 {
 	struct udev_seat *seat;
 
-	wl_list_for_each(seat, &c->seat_list, base.link) {
+	wl_list_for_each(seat, &input->compositor->seat_list, base.link) {
 		if (strcmp(seat->base.seat_name, seat_name) == 0)
 			return seat;
 	}
 
-	return NULL;
+	return udev_seat_create(input, seat_name);
 }
