@@ -54,54 +54,6 @@ evdev_led_update(struct evdev_device *device, enum weston_led weston_leds)
 }
 
 static void
-handle_register_capability(
-	struct libinput_device *libinput_device,
-	struct libinput_event_device_register_capability *event)
-{
-	struct evdev_device *device =
-		libinput_device_get_user_data(libinput_device);
-	struct weston_seat *seat = device->seat;
-	enum libinput_device_capability capability =
-		libinput_event_device_register_capability_get_capability(event);
-
-	switch (capability) {
-	case LIBINPUT_DEVICE_CAP_KEYBOARD:
-		weston_seat_init_keyboard(seat, NULL);
-		break;
-	case LIBINPUT_DEVICE_CAP_POINTER:
-		weston_seat_init_pointer(seat);
-		break;
-	case LIBINPUT_DEVICE_CAP_TOUCH:
-		weston_seat_init_touch(seat);
-		break;
-	};
-}
-
-static void
-handle_unregister_capability(
-	struct libinput_device *libinput_device,
-	struct libinput_event_device_unregister_capability *event)
-{
-	struct evdev_device *device =
-		libinput_device_get_user_data(libinput_device);
-	struct weston_seat *seat = device->seat;
-	enum libinput_device_capability capability =
-		libinput_event_device_unregister_capability_get_capability(event);
-
-	switch (capability) {
-	case LIBINPUT_DEVICE_CAP_KEYBOARD:
-		weston_seat_release_keyboard(seat);
-		break;
-	case LIBINPUT_DEVICE_CAP_POINTER:
-		weston_seat_release_pointer(seat);
-		break;
-	case LIBINPUT_DEVICE_CAP_TOUCH:
-		weston_seat_release_touch(seat);
-		break;
-	};
-}
-
-static void
 handle_keyboard_key(struct libinput_device *libinput_device,
 		    struct libinput_event_keyboard_key *key_event)
 {
@@ -219,16 +171,6 @@ evdev_device_process_event(struct libinput_event *event)
 	int handled = 1;
 
 	switch (libinput_event_get_type(event)) {
-	case LIBINPUT_EVENT_DEVICE_REGISTER_CAPABILITY:
-		handle_register_capability(
-			libinput_device,
-			(struct libinput_event_device_register_capability *) event);
-		break;
-	case LIBINPUT_EVENT_DEVICE_UNREGISTER_CAPABILITY:
-		handle_unregister_capability(
-			libinput_device,
-			(struct libinput_event_device_unregister_capability *) event);
-		break;
 	case LIBINPUT_EVENT_KEYBOARD_KEY:
 		handle_keyboard_key(
 			libinput_device,
@@ -312,6 +254,22 @@ evdev_device_create(struct libinput_device *libinput_device,
 	wl_list_init(&device->link);
 	device->device = libinput_device;
 
+	if (libinput_device_has_capability(libinput_device,
+					   LIBINPUT_DEVICE_CAP_KEYBOARD)) {
+		weston_seat_init_keyboard(seat, NULL);
+		device->seat_caps |= EVDEV_SEAT_KEYBOARD;
+	}
+	if (libinput_device_has_capability(libinput_device,
+					   LIBINPUT_DEVICE_CAP_POINTER)) {
+		weston_seat_init_pointer(seat);
+		device->seat_caps |= EVDEV_SEAT_POINTER;
+	}
+	if (libinput_device_has_capability(libinput_device,
+					   LIBINPUT_DEVICE_CAP_TOUCH)) {
+		weston_seat_init_touch(seat);
+		device->seat_caps |= EVDEV_SEAT_TOUCH;
+	}
+
 	libinput_device_set_user_data(libinput_device, device);
 	libinput_device_ref(libinput_device);
 
@@ -321,6 +279,13 @@ evdev_device_create(struct libinput_device *libinput_device,
 void
 evdev_device_destroy(struct evdev_device *device)
 {
+	if (device->seat_caps & EVDEV_SEAT_KEYBOARD)
+		weston_seat_release_keyboard(device->seat);
+	if (device->seat_caps & EVDEV_SEAT_POINTER)
+		weston_seat_release_pointer(device->seat);
+	if (device->seat_caps & EVDEV_SEAT_TOUCH)
+		weston_seat_release_touch(device->seat);
+
 	wl_list_remove(&device->link);
 	libinput_device_unref(device->device);
 	free(device->devnode);

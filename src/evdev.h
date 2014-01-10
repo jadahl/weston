@@ -41,6 +41,7 @@ enum evdev_device_seat_capability {
 
 struct evdev_device {
 	struct weston_seat *seat;
+	enum evdev_device_seat_capability seat_caps;
 	struct libinput_device *device;
 	struct wl_list link;
 	struct weston_output *output;
