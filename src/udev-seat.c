@@ -113,23 +113,12 @@ udev_input_disable(struct udev_input *input)
 static int
 udev_input_process_event(struct libinput_event *event)
 {
-	struct libinput *libinput = libinput_event_get_target(event).libinput;
 	struct libinput_device *libinput_device;
-	struct udev_input *input = libinput_get_user_data(libinput);
 	struct evdev_device *device;
 	int handled = 1;
-	struct libinput_event_added_device *added_device_event;
 	struct libinput_event_removed_device *removed_device_event;
 
 	switch (libinput_event_get_type(event)) {
-	case LIBINPUT_EVENT_ADDED_DEVICE:
-		added_device_event =
-			(struct libinput_event_added_device *) event;
-		libinput_device =
-			libinput_event_added_device_get_device(
-				added_device_event);
-		device_added(input, libinput_device);
-		break;
 	case LIBINPUT_EVENT_REMOVED_DEVICE:
 		removed_device_event =
 			(struct libinput_event_removed_device *) event;
@@ -216,10 +205,18 @@ close_restricted(int fd, void *user_data)
 	weston_launcher_close(launcher, fd);
 }
 
+static int
+new_device(struct libinput_device *device, void *user_data)
+{
+	device_added(user_data, device);
+	return 0;
+}
+
 const struct libinput_interface libinput_interface = {
 	open_restricted,
 	close_restricted,
 
+	new_device,
 	get_current_screen_dimensions,
 };
 
