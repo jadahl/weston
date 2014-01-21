@@ -57,7 +57,7 @@ device_added(struct udev_input *input, struct libinput_device *libinput_device)
 	c = input->compositor;
 	libinput_seat = libinput_device_get_seat(libinput_device);
 
-	seat_name = libinput_seat_get_name(libinput_seat);
+	seat_name = libinput_seat_get_logical_name(libinput_seat);
 	seat = udev_seat_get_named(input, seat_name);
 	if (!seat)
 		return;
