@@ -167,7 +167,7 @@ int
 evdev_device_process_event(struct libinput_event *event)
 {
 	struct libinput_device *libinput_device =
-		libinput_event_get_target(event).device;
+		libinput_event_get_device(event);
 	int handled = 1;
 
 	switch (libinput_event_get_type(event)) {

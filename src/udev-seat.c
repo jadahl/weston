@@ -109,29 +109,18 @@ udev_input_disable(struct udev_input *input)
 static int
 udev_input_process_event(struct libinput_event *event)
 {
-	struct libinput *libinput = libinput_event_get_target(event).libinput;
-	struct libinput_device *libinput_device;
+	struct libinput *libinput = libinput_event_get_context(event);
+	struct libinput_device *libinput_device =
+		libinput_event_get_device(event);
 	struct udev_input *input = libinput_get_user_data(libinput);
 	struct evdev_device *device;
 	int handled = 1;
-	struct libinput_event_added_device *added_device_event;
-	struct libinput_event_removed_device *removed_device_event;
 
 	switch (libinput_event_get_type(event)) {
 	case LIBINPUT_EVENT_ADDED_DEVICE:
-		added_device_event =
-			(struct libinput_event_added_device *) event;
-		libinput_device =
-			libinput_event_added_device_get_device(
-				added_device_event);
 		device_added(input, libinput_device);
 		break;
 	case LIBINPUT_EVENT_REMOVED_DEVICE:
-		removed_device_event =
-			(struct libinput_event_removed_device *) event;
-		libinput_device =
-			libinput_event_removed_device_get_device(
-				removed_device_event);
 		device = libinput_device_get_user_data(libinput_device);
 		evdev_device_destroy(device);
 		break;
