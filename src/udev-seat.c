@@ -117,10 +117,10 @@ udev_input_process_event(struct libinput_event *event)
 	int handled = 1;
 
 	switch (libinput_event_get_type(event)) {
-	case LIBINPUT_EVENT_ADDED_DEVICE:
+	case LIBINPUT_EVENT_DEVICE_ADDED:
 		device_added(input, libinput_device);
 		break;
-	case LIBINPUT_EVENT_REMOVED_DEVICE:
+	case LIBINPUT_EVENT_DEVICE_REMOVED:
 		device = libinput_device_get_user_data(libinput_device);
 		evdev_device_destroy(device);
 		break;
