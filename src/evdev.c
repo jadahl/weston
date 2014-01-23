@@ -236,6 +236,8 @@ evdev_device_set_output(struct evdev_device *device,
 	device->output_destroy_listener.notify = notify_output_destroy;
 	wl_signal_add(&output->destroy_signal,
 		      &device->output_destroy_listener);
+	libinput_device_set_output_size(device->device,
+					output->width, output->height);
 }
 
 struct evdev_device *
