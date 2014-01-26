@@ -55,47 +55,41 @@ evdev_led_update(struct evdev_device *device, enum weston_led weston_leds)
 
 static void
 handle_keyboard_key(struct libinput_device *libinput_device,
-		    struct libinput_event_keyboard_key *key_event)
+		    struct libinput_event_keyboard *keyboard_event)
 {
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
 
 	notify_key(device->seat,
-		   libinput_event_keyboard_key_get_time(key_event),
-		   libinput_event_keyboard_key_get_key(key_event),
-		   libinput_event_keyboard_key_get_state(key_event),
+		   libinput_event_keyboard_get_time(keyboard_event),
+		   libinput_event_keyboard_get_key(keyboard_event),
+		   libinput_event_keyboard_get_key_state(keyboard_event),
 		   STATE_UPDATE_AUTOMATIC);
 }
 
 static void
 handle_pointer_motion(struct libinput_device *libinput_device,
-		      struct libinput_event_pointer_motion *motion_event)
+		      struct libinput_event_pointer *pointer_event)
 {
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
 
 	notify_motion(device->seat,
-		      libinput_event_pointer_motion_get_time(motion_event),
-		      libinput_event_pointer_motion_get_dx(motion_event),
-		      libinput_event_pointer_motion_get_dy(motion_event));
+		      libinput_event_pointer_get_time(pointer_event),
+		      libinput_event_pointer_get_dx(pointer_event),
+		      libinput_event_pointer_get_dy(pointer_event));
 }
 
 static void
 handle_pointer_motion_absolute(
 	struct libinput_device *libinput_device,
-	struct libinput_event_pointer_motion_absolute *motion_absolute_event)
+	struct libinput_event_pointer *pointer_event)
 {
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
-	uint32_t time =
-		libinput_event_pointer_motion_absolute_get_time(
-			motion_absolute_event);
-	wl_fixed_t x =
-		libinput_event_pointer_motion_absolute_get_x(
-			motion_absolute_event);
-	wl_fixed_t y =
-		libinput_event_pointer_motion_absolute_get_y(
-			motion_absolute_event);
+	uint32_t time = libinput_event_pointer_get_time(pointer_event);
+	wl_fixed_t x = libinput_event_pointer_get_absolute_x(pointer_event);
+	wl_fixed_t y = libinput_event_pointer_get_absolute_y(pointer_event);
 
 	weston_output_transform_coordinate(device->output, x, y, &x, &y);
 	notify_motion_absolute(device->seat, time, x, y);
@@ -103,43 +97,43 @@ handle_pointer_motion_absolute(
 
 static void
 handle_pointer_button(struct libinput_device *libinput_device,
-		      struct libinput_event_pointer_button *button_event)
+		      struct libinput_event_pointer *pointer_event)
 {
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
 
 	notify_button(device->seat,
-		      libinput_event_pointer_button_get_time(button_event),
-		      libinput_event_pointer_button_get_button(button_event),
-		      libinput_event_pointer_button_get_state(button_event));
+		      libinput_event_pointer_get_time(pointer_event),
+		      libinput_event_pointer_get_button(pointer_event),
+		      libinput_event_pointer_get_button_state(pointer_event));
 }
 
 static void
 handle_pointer_axis(struct libinput_device *libinput_device,
-		    struct libinput_event_pointer_axis *axis_event)
+		    struct libinput_event_pointer *pointer_event)
 {
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
 
 	notify_axis(device->seat,
-		    libinput_event_pointer_axis_get_time(axis_event),
-		    libinput_event_pointer_axis_get_axis(axis_event),
-		    libinput_event_pointer_axis_get_value(axis_event));
+		    libinput_event_pointer_get_time(pointer_event),
+		    libinput_event_pointer_get_axis(pointer_event),
+		    libinput_event_pointer_get_axis_value(pointer_event));
 }
 
 static void
 handle_touch_touch(struct libinput_device *libinput_device,
-		   struct libinput_event_touch_touch *touch_event)
+		   struct libinput_event_touch *touch_event)
 {
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
 	struct weston_seat *master = device->seat;
-	wl_fixed_t x = libinput_event_touch_touch_get_x(touch_event);
-	wl_fixed_t y = libinput_event_touch_touch_get_y(touch_event);
-	uint32_t slot = libinput_event_touch_touch_get_slot(touch_event);
+	wl_fixed_t x = libinput_event_touch_get_x(touch_event);
+	wl_fixed_t y = libinput_event_touch_get_y(touch_event);
+	uint32_t slot = libinput_event_touch_get_slot(touch_event);
 	uint32_t seat_slot;
 
-	switch (libinput_event_touch_touch_get_touch_type(touch_event)) {
+	switch (libinput_event_touch_get_touch_type(touch_event)) {
 	case LIBINPUT_TOUCH_TYPE_DOWN:
 		seat_slot = ffs(~master->slot_map) - 1;
 		device->mt_slots[slot] = seat_slot;
@@ -157,10 +151,10 @@ handle_touch_touch(struct libinput_device *libinput_device,
 	weston_output_transform_coordinate(device->output,
 					   x, y, &x, &y);
 	notify_touch(device->seat,
-		     libinput_event_touch_touch_get_time(touch_event),
+		     libinput_event_touch_get_time(touch_event),
 		     seat_slot,
 		     x, y,
-		     libinput_event_touch_touch_get_touch_type(touch_event));
+		     libinput_event_touch_get_touch_type(touch_event));
 }
 
 int
@@ -172,34 +166,29 @@ evdev_device_process_event(struct libinput_event *event)
 
 	switch (libinput_event_get_type(event)) {
 	case LIBINPUT_EVENT_KEYBOARD_KEY:
-		handle_keyboard_key(
-			libinput_device,
-			(struct libinput_event_keyboard_key *) event);
+		handle_keyboard_key(libinput_device,
+				    libinput_event_get_keyboard_event(event));
 		break;
 	case LIBINPUT_EVENT_POINTER_MOTION:
-		handle_pointer_motion(
-			libinput_device,
-			(struct libinput_event_pointer_motion *) event);
+		handle_pointer_motion(libinput_device,
+				      libinput_event_get_pointer_event(event));
 		break;
 	case LIBINPUT_EVENT_POINTER_MOTION_ABSOLUTE:
 		handle_pointer_motion_absolute(
 			libinput_device,
-			(struct libinput_event_pointer_motion_absolute *) event);
+			libinput_event_get_pointer_event(event));
 		break;
 	case LIBINPUT_EVENT_POINTER_BUTTON:
-		handle_pointer_button(
-			libinput_device,
-			(struct libinput_event_pointer_button *) event);
+		handle_pointer_button(libinput_device,
+				      libinput_event_get_pointer_event(event));
 		break;
 	case LIBINPUT_EVENT_POINTER_AXIS:
-		handle_pointer_axis(
-			libinput_device,
-			(struct libinput_event_pointer_axis *) event);
+		handle_pointer_axis(libinput_device,
+				    libinput_event_get_pointer_event(event));
 		break;
 	case LIBINPUT_EVENT_TOUCH_TOUCH:
-		handle_touch_touch(
-			libinput_device,
-			(struct libinput_event_touch_touch *) event);
+		handle_touch_touch(libinput_device,
+				   libinput_event_get_touch_event(event));
 		break;
 	default:
 		handled = 0;
