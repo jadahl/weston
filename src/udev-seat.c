@@ -170,19 +170,6 @@ libinput_source_dispatch(int fd, uint32_t mask, void *data)
 	return udev_input_dispatch(input) != 0;
 }
 
-static void
-get_current_screen_dimensions(struct libinput_device *libinput_device,
-			      int *width,
-			      int *height,
-			      void *user_data)
-{
-	struct evdev_device *device =
-		libinput_device_get_user_data(libinput_device);
-
-	*width = device->output->current_mode->width;
-	*height = device->output->current_mode->height;
-}
-
 static int
 open_restricted(const char *path, int flags, void *user_data)
 {
@@ -204,8 +191,6 @@ close_restricted(int fd, void *user_data)
 const struct libinput_interface libinput_interface = {
 	open_restricted,
 	close_restricted,
-
-	get_current_screen_dimensions,
 };
 
 int
