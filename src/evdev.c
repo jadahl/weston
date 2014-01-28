@@ -87,9 +87,22 @@ handle_pointer_motion_absolute(
 {
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
-	uint32_t time = libinput_event_pointer_get_time(pointer_event);
-	wl_fixed_t x = libinput_event_pointer_get_absolute_x(pointer_event);
-	wl_fixed_t y = libinput_event_pointer_get_absolute_y(pointer_event);
+	struct weston_output *output = device->output;
+	uint32_t time;
+	wl_fixed_t x, y;
+	uint32_t width, height;
+
+	if (!output)
+		return;
+
+	time = libinput_event_pointer_get_time(pointer_event);
+	width = device->output->current_mode->width;
+	height = device->output->current_mode->height;
+
+	x = libinput_event_pointer_get_absolute_x_transformed(pointer_event,
+							      width);
+	y = libinput_event_pointer_get_absolute_y_transformed(pointer_event,
+							      height);
 
 	weston_output_transform_coordinate(device->output, x, y, &x, &y);
 	notify_motion_absolute(device->seat, time, x, y);
@@ -128,10 +141,17 @@ handle_touch_touch(struct libinput_device *libinput_device,
 	struct evdev_device *device =
 		libinput_device_get_user_data(libinput_device);
 	struct weston_seat *master = device->seat;
-	wl_fixed_t x = libinput_event_touch_get_x(touch_event);
-	wl_fixed_t y = libinput_event_touch_get_y(touch_event);
-	uint32_t slot = libinput_event_touch_get_slot(touch_event);
+	wl_fixed_t x;
+	wl_fixed_t y;
+	uint32_t width, height;
+	uint32_t slot;
 	uint32_t seat_slot;
+
+	width = device->output->current_mode->width;
+	height = device->output->current_mode->height;
+	x = libinput_event_touch_get_x_transformed(touch_event, width);
+	y = libinput_event_touch_get_y_transformed(touch_event, height);
+	slot = libinput_event_touch_get_slot(touch_event);
 
 	switch (libinput_event_touch_get_touch_type(touch_event)) {
 	case LIBINPUT_TOUCH_TYPE_DOWN:
