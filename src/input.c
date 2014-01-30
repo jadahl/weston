@@ -286,6 +286,15 @@ default_grab_touch_motion(struct weston_touch_grab *grab, uint32_t time,
 }
 
 static void
+default_grab_touch_frame(struct weston_touch_grab *grab)
+{
+	struct wl_resource *resource;
+
+	wl_resource_for_each(resource, &grab->touch->focus_resource_list)
+		wl_touch_send_frame(resource);
+}
+
+static void
 default_grab_touch_cancel(struct weston_touch_grab *grab)
 {
 }
@@ -294,6 +303,7 @@ static const struct weston_touch_grab_interface default_touch_grab_interface = {
 	default_grab_touch_down,
 	default_grab_touch_up,
 	default_grab_touch_motion,
+	default_grab_touch_frame,
 	default_grab_touch_cancel,
 };
 
@@ -1520,6 +1530,15 @@ notify_touch(struct weston_seat *seat, uint32_t time, int touch_id,
 	}
 
 	weston_compositor_run_touch_binding(ec, seat, time, touch_type);
+}
+
+WL_EXPORT void
+notify_touch_frame(struct weston_seat *seat)
+{
+	struct weston_touch *touch = seat->touch;
+	struct weston_touch_grab *grab = touch->grab;
+
+	grab->interface->frame(grab);
 }
 
 static void
