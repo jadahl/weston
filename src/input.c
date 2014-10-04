@@ -218,6 +218,19 @@ default_grab_pointer_button(struct weston_pointer_grab *grab,
 }
 
 static void
+default_grab_pointer_axis(struct weston_pointer_grab *grab,
+			  uint32_t time, uint32_t axis, wl_fixed_t value)
+{
+	struct weston_pointer *pointer = grab->pointer;
+	struct wl_resource *resource;
+	struct wl_list *resource_list;
+
+	resource_list = &pointer->focus_resource_list;
+	wl_resource_for_each(resource, resource_list)
+		wl_pointer_send_axis(resource, time, axis, value);
+}
+
+static void
 default_grab_pointer_cancel(struct weston_pointer_grab *grab)
 {
 }
@@ -227,6 +240,7 @@ static const struct weston_pointer_grab_interface
 	default_grab_pointer_focus,
 	default_grab_pointer_motion,
 	default_grab_pointer_button,
+	default_grab_pointer_axis,
 	default_grab_pointer_cancel,
 };
 
@@ -1046,8 +1060,6 @@ notify_axis(struct weston_seat *seat, uint32_t time, uint32_t axis,
 {
 	struct weston_compositor *compositor = seat->compositor;
 	struct weston_pointer *pointer = seat->pointer;
-	struct wl_resource *resource;
-	struct wl_list *resource_list;
 
 	weston_compositor_wake(compositor);
 
@@ -1058,10 +1070,7 @@ notify_axis(struct weston_seat *seat, uint32_t time, uint32_t axis,
 						   time, axis, value))
 		return;
 
-	resource_list = &pointer->focus_resource_list;
-	wl_resource_for_each(resource, resource_list)
-		wl_pointer_send_axis(resource, time, axis,
-				     value);
+	pointer->grab->interface->axis(pointer->grab, time, axis, value);
 }
 
 WL_EXPORT int
