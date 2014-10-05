@@ -1087,12 +1087,13 @@ x11_compositor_deliver_button_event(struct x11_compositor *c,
 
 static void
 x11_compositor_deliver_motion_event(struct x11_compositor *c,
-					xcb_generic_event_t *event)
+				    xcb_generic_event_t *xcb_event)
 {
 	struct x11_output *output;
 	wl_fixed_t x, y;
+	struct weston_pointer_motion_event event = { 0 };
 	xcb_motion_notify_event_t *motion_notify =
-			(xcb_motion_notify_event_t *) event;
+			(xcb_motion_notify_event_t *) xcb_event;
 
 	if (!c->has_xkb)
 		update_xkb_state_from_core(c, motion_notify->state);
@@ -1105,8 +1106,14 @@ x11_compositor_deliver_motion_event(struct x11_compositor *c,
 					   wl_fixed_from_int(motion_notify->event_y),
 					   &x, &y);
 
+	event = (struct weston_pointer_motion_event) {
+		.mask = WESTON_POINTER_MOTION_REL,
+		.dx = wl_fixed_to_double(x - c->prev_x),
+		.dy = wl_fixed_to_double(y - c->prev_y)
+	};
+
 	notify_motion(&c->core_seat, weston_compositor_get_time(),
-		      x - c->prev_x, y - c->prev_y);
+		      &event);
 
 	c->prev_x = x;
 	c->prev_y = y;
