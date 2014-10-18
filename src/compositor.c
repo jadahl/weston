@@ -4051,6 +4051,8 @@ weston_compositor_init(struct weston_compositor *ec,
 
 	ec->output_id_pool = 0;
 
+	ec->activate_serial = 1;
+
 	if (!wl_global_create(display, &wl_compositor_interface, 3,
 			      ec, compositor_bind))
 		return -1;

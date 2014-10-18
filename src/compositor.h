@@ -685,6 +685,8 @@ struct weston_compositor {
 	clockid_t presentation_clock;
 
 	int exit_code;
+
+	unsigned int activate_serial;
 };
 
 struct weston_buffer {
@@ -776,6 +778,8 @@ struct weston_view {
 	struct weston_layer_entry layer_link;
 	struct weston_plane *plane;
 	struct weston_view *parent_view;
+
+	unsigned int click_to_activate_serial;
 
 	pixman_region32_t clip;
 	float alpha;                     /* part of geometry, see below */
@@ -972,7 +976,8 @@ enum weston_key_state_update {
 
 enum weston_activate_flag {
 	WESTON_ACTIVATE_FLAG_NONE = 0,
-	WESTON_ACTIVATE_FLAG_CONFIGURE = 1 << 0,
+	WESTON_ACTIVATE_FLAG_CLICKED = 1 << 0,
+	WESTON_ACTIVATE_FLAG_CONFIGURE = 1 << 1,
 };
 
 void
@@ -1024,6 +1029,12 @@ weston_spring_done(struct weston_spring *spring);
 void
 weston_surface_activate(struct weston_surface *surface,
 			struct weston_seat *seat);
+
+void
+weston_view_activate(struct weston_view *view,
+		     struct weston_seat *seat,
+		     uint32_t flags);
+
 void
 notify_motion(struct weston_seat *seat, uint32_t time,
 	      struct weston_pointer_motion_event *event);

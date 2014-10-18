@@ -4886,7 +4886,7 @@ activate(struct desktop_shell *shell, struct weston_view *view,
 
 	main_surface = weston_surface_get_main_surface(es);
 
-	weston_surface_activate(es, seat);
+	weston_view_activate(view, seat, flags);
 
 	state = ensure_focus_state(shell, seat);
 	if (state == NULL)
@@ -4966,6 +4966,7 @@ click_to_activate_binding(struct weston_seat *seat,
 		return;
 
 	activate_binding(seat, data, seat->pointer->focus,
+			 WESTON_ACTIVATE_FLAG_CLICKED |
 			 WESTON_ACTIVATE_FLAG_CONFIGURE);
 }
 
