@@ -1054,11 +1054,27 @@ notify_motion_absolute(struct weston_seat *seat,
 	pointer->grab->interface->motion(pointer->grab, time, &event);
 }
 
+static unsigned int
+peek_next_activate_serial(struct weston_compositor *c)
+{
+	unsigned serial = c->activate_serial + 1;
+
+	return serial == 0 ? 1 : serial;
+}
+
+static void
+inc_activate_serial(struct weston_compositor *c)
+{
+	c->activate_serial = peek_next_activate_serial (c);
+}
+
 WL_EXPORT void
 weston_surface_activate(struct weston_surface *surface,
 			struct weston_seat *seat)
 {
 	struct weston_compositor *compositor = seat->compositor;
+
+	inc_activate_serial(compositor);
 
 	if (seat->keyboard) {
 		weston_keyboard_set_focus(seat->keyboard, surface);
@@ -1066,6 +1082,20 @@ weston_surface_activate(struct weston_surface *surface,
 	}
 
 	wl_signal_emit(&compositor->activate_signal, surface);
+}
+
+WL_EXPORT void
+weston_view_activate(struct weston_view *view,
+		     struct weston_seat *seat,
+		     uint32_t flags)
+{
+	struct weston_compositor *compositor = seat->compositor;
+
+	if (flags & WESTON_ACTIVATE_FLAG_CLICKED) {
+		view->click_to_activate_serial =
+			peek_next_activate_serial(compositor);
+	}
+	weston_surface_activate(view->surface, seat);
 }
 
 WL_EXPORT void
