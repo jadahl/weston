@@ -230,7 +230,7 @@ void
 lower_fullscreen_layer(struct desktop_shell *shell);
 
 void
-activate(struct desktop_shell *shell, struct weston_surface *es,
+activate(struct desktop_shell *shell, struct weston_view *view,
 	 struct weston_seat *seat, bool configure);
 
 void
