@@ -6016,7 +6016,7 @@ bind_screensaver(struct wl_client *client,
 
 struct switcher {
 	struct desktop_shell *shell;
-	struct weston_surface *current;
+	struct weston_view *current;
 	struct wl_listener listener;
 	struct weston_keyboard_grab grab;
 	struct wl_array minimized_array;
@@ -6026,7 +6026,7 @@ static void
 switcher_next(struct switcher *switcher)
 {
 	struct weston_view *view;
-	struct weston_surface *first = NULL, *prev = NULL, *next = NULL;
+	struct weston_view *first = NULL, *prev = NULL, *next = NULL;
 	struct shell_surface *shsurf;
 	struct workspace *ws = get_current_workspace(switcher->shell);
 
@@ -6046,10 +6046,10 @@ switcher_next(struct switcher *switcher)
 		    shsurf->type == SHELL_SURFACE_TOPLEVEL &&
 		    shsurf->parent == NULL) {
 			if (first == NULL)
-				first = view->surface;
+				first = view;
 			if (prev == switcher->current)
-				next = view->surface;
-			prev = view->surface;
+				next = view;
+			prev = view;
 			view->alpha = 0.25;
 			weston_view_geometry_dirty(view);
 			weston_surface_damage(view->surface);
@@ -6072,16 +6072,16 @@ switcher_next(struct switcher *switcher)
 	wl_signal_add(&next->destroy_signal, &switcher->listener);
 
 	switcher->current = next;
-	wl_list_for_each(view, &next->views, surface_link)
+	wl_list_for_each(view, &next->surface->views, surface_link)
 		view->alpha = 1.0;
 
-	shsurf = get_shell_surface(switcher->current);
+	shsurf = get_shell_surface(switcher->current->surface);
 	if (shsurf && shsurf->state.fullscreen)
 		shsurf->fullscreen.black_view->alpha = 1.0;
 }
 
 static void
-switcher_handle_surface_destroy(struct wl_listener *listener, void *data)
+switcher_handle_view_destroy(struct wl_listener *listener, void *data)
 {
 	struct switcher *switcher =
 		container_of(listener, struct switcher, listener);
@@ -6105,7 +6105,7 @@ switcher_destroy(struct switcher *switcher)
 	}
 
 	if (switcher->current)
-		activate(switcher->shell, switcher->current,
+		activate(switcher->shell, switcher->current->surface,
 			 keyboard->seat, true);
 	wl_list_remove(&switcher->listener.link);
 	weston_keyboard_end_grab(keyboard);
@@ -6116,7 +6116,7 @@ switcher_destroy(struct switcher *switcher)
 	struct weston_view **minimized;
 	wl_array_for_each(minimized, &switcher->minimized_array) {
 		/* with the exception of the current selected */
-		if ((*minimized)->surface != switcher->current) {
+		if ((*minimized)->surface != switcher->current->surface) {
 			weston_layer_entry_remove(&(*minimized)->layer_link);
 			weston_layer_entry_insert(&switcher->shell->minimized_layer.view_list, &(*minimized)->layer_link);
 			weston_view_damage_below(*minimized);
@@ -6174,7 +6174,7 @@ switcher_binding(struct weston_seat *seat, uint32_t time, uint32_t key,
 	switcher = malloc(sizeof *switcher);
 	switcher->shell = shell;
 	switcher->current = NULL;
-	switcher->listener.notify = switcher_handle_surface_destroy;
+	switcher->listener.notify = switcher_handle_view_destroy;
 	wl_list_init(&switcher->listener.link);
 	wl_array_init(&switcher->minimized_array);
 
