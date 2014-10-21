@@ -239,6 +239,7 @@ struct weston_output {
 enum weston_pointer_motion_mask {
 	WESTON_POINTER_MOTION_ABS = 1 << 0,
 	WESTON_POINTER_MOTION_REL = 1 << 1,
+	WESTON_POINTER_MOTION_REL_NOACCEL = 1 << 2,
 };
 
 struct weston_pointer_motion_event {
@@ -247,6 +248,8 @@ struct weston_pointer_motion_event {
 	wl_fixed_t y;
 	wl_fixed_t dx;
 	wl_fixed_t dy;
+	wl_fixed_t dx_noaccel;
+	wl_fixed_t dy_noaccel;
 };
 
 struct weston_pointer_grab;

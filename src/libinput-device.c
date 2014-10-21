@@ -76,11 +76,16 @@ handle_pointer_motion(struct libinput_device *libinput_device,
 	struct weston_pointer_motion_event event = { 0 };
 
 	event = (struct weston_pointer_motion_event) {
-		.mask = WESTON_POINTER_MOTION_REL,
+		.mask = WESTON_POINTER_MOTION_REL |
+			WESTON_POINTER_MOTION_REL_NOACCEL,
 		.dx = wl_fixed_from_double(
 			libinput_event_pointer_get_dx(pointer_event)),
 		.dy = wl_fixed_from_double(
 			libinput_event_pointer_get_dy(pointer_event)),
+		.dx_noaccel = wl_fixed_from_double(
+			libinput_event_pointer_get_dx_noaccel(pointer_event)),
+		.dy_noaccel = wl_fixed_from_double(
+			libinput_event_pointer_get_dy_noaccel(pointer_event)),
 	};
 
 	notify_motion(device->seat,
