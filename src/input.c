@@ -33,6 +33,7 @@
 
 #include "../shared/os-compatibility.h"
 #include "compositor.h"
+#include "protocol/relative-pointer-server-protocol.h"
 
 static void
 empty_region(pixman_region32_t *region)
@@ -44,6 +45,49 @@ empty_region(pixman_region32_t *region)
 static void unbind_resource(struct wl_resource *resource)
 {
 	wl_list_remove(wl_resource_get_link(resource));
+}
+
+WL_EXPORT void
+weston_pointer_motion_to_abs(struct weston_pointer *pointer,
+			     struct weston_pointer_motion_event *event,
+			     wl_fixed_t *x, wl_fixed_t *y)
+{
+	if (event->mask & WESTON_POINTER_MOTION_ABS) {
+		*x = event->x;
+		*y = event->y;
+	} else if (event->mask & WESTON_POINTER_MOTION_REL) {
+		*x = pointer->x + event->dx;
+		*y = pointer->y + event->dy;
+	} else {
+		assert(!"invalid motion event");
+		*x = *y = 0;
+	}
+}
+
+static int
+weston_pointer_motion_to_rel(struct weston_pointer *pointer,
+			     struct weston_pointer_motion_event *event,
+			     wl_fixed_t *dx, wl_fixed_t *dy,
+			     wl_fixed_t *dx_noaccel, wl_fixed_t *dy_noaccel)
+{
+	if (event->mask & WESTON_POINTER_MOTION_REL &&
+	    event->mask & WESTON_POINTER_MOTION_REL_NOACCEL) {
+		*dx = event->dx;
+		*dy = event->dy;
+		*dx_noaccel = event->dx_noaccel;
+		*dy_noaccel = event->dy_noaccel;
+		return 1;
+	} else if (event->mask & WESTON_POINTER_MOTION_REL) {
+		*dx_noaccel = *dx = event->dx;
+		*dy_noaccel = *dy = event->dy;
+		return 1;
+	} else if (event->mask & WESTON_POINTER_MOTION_REL_NOACCEL) {
+		*dx_noaccel = *dx = event->dx_noaccel;
+		*dy_noaccel = *dy = event->dy_noaccel;
+		return 1;
+	} else {
+		return 0;
+	}
 }
 
 WL_EXPORT void
@@ -162,6 +206,27 @@ default_grab_pointer_focus(struct weston_pointer_grab *grab)
 }
 
 static void
+weston_pointer_send_relative_motion(struct weston_pointer *pointer,
+				    uint32_t time,
+				    struct weston_pointer_motion_event *event)
+{
+	wl_fixed_t dx, dy;
+	wl_fixed_t dx_noaccel, dy_noaccel;
+	struct wl_list *resource_list;
+	struct wl_resource *resource;
+
+	if (weston_pointer_motion_to_rel(pointer, event,
+					 &dx, &dy,
+					 &dx_noaccel, &dy_noaccel)) {
+		resource_list = &pointer->relative_focus_resource_list;
+		wl_resource_for_each(resource, resource_list) {
+			_wl_relative_pointer_send_relative_motion(
+				resource, time, dx, dy, dx_noaccel, dy_noaccel);
+		}
+	}
+}
+
+static void
 default_grab_pointer_motion(struct weston_pointer_grab *grab, uint32_t time,
 			    struct weston_pointer_motion_event *event)
 {
@@ -169,6 +234,8 @@ default_grab_pointer_motion(struct weston_pointer_grab *grab, uint32_t time,
 	struct wl_list *resource_list;
 	struct wl_resource *resource;
 	wl_fixed_t x, y;
+	wl_fixed_t old_sx = pointer->sx;
+	wl_fixed_t old_sy = pointer->sy;
 
 	if (pointer->focus) {
 		weston_pointer_motion_to_abs(pointer, event, &x, &y);
@@ -178,11 +245,15 @@ default_grab_pointer_motion(struct weston_pointer_grab *grab, uint32_t time,
 
 	weston_pointer_move(pointer, event);
 
-	resource_list = &pointer->focus_resource_list;
-	wl_resource_for_each(resource, resource_list) {
-		wl_pointer_send_motion(resource, time,
-				       pointer->sx, pointer->sy);
+	if (old_sx != pointer->sx || old_sy != pointer->sy) {
+		resource_list = &pointer->focus_resource_list;
+		wl_resource_for_each(resource, resource_list) {
+			wl_pointer_send_motion(resource, time,
+					       pointer->sx, pointer->sy);
+		}
 	}
+
+	weston_pointer_send_relative_motion(pointer, time, event);
 }
 
 static void
@@ -481,7 +552,9 @@ weston_pointer_create(struct weston_seat *seat)
 		return NULL;
 
 	wl_list_init(&pointer->resource_list);
+	wl_list_init(&pointer->relative_resource_list);
 	wl_list_init(&pointer->focus_resource_list);
+	wl_list_init(&pointer->relative_focus_resource_list);
 	weston_pointer_set_default_grab(pointer,
 					seat->compositor->default_pointer_grab);
 	wl_list_init(&pointer->focus_resource_listener.link);
@@ -643,6 +716,7 @@ weston_pointer_set_focus(struct weston_pointer *pointer,
 	struct wl_display *display = pointer->seat->compositor->wl_display;
 	uint32_t serial;
 	struct wl_list *focus_resource_list;
+	struct wl_list *relative_focus_resource_list;
 	int refocus = 0;
 
 	if ((!pointer->focus && view) ||
@@ -652,6 +726,7 @@ weston_pointer_set_focus(struct weston_pointer *pointer,
 		refocus = 1;
 
 	focus_resource_list = &pointer->focus_resource_list;
+	relative_focus_resource_list = &pointer->relative_focus_resource_list;
 
 	if (!wl_list_empty(focus_resource_list) && refocus) {
 		serial = wl_display_next_serial(display);
@@ -661,6 +736,8 @@ weston_pointer_set_focus(struct weston_pointer *pointer,
 		}
 
 		move_resources(&pointer->resource_list, focus_resource_list);
+		move_resources(&pointer->relative_resource_list,
+			       relative_focus_resource_list);
 	}
 
 	if (find_resource_for_view(&pointer->resource_list, view) && refocus) {
@@ -677,6 +754,9 @@ weston_pointer_set_focus(struct weston_pointer *pointer,
 
 		move_resources_for_client(focus_resource_list,
 					  &pointer->resource_list,
+					  surface_client);
+		move_resources_for_client(relative_focus_resource_list,
+					  &pointer->relative_resource_list,
 					  surface_client);
 
 		wl_resource_for_each(resource, focus_resource_list) {
@@ -908,23 +988,6 @@ weston_pointer_move_to(struct weston_pointer *pointer,
 
 	pointer->grab->interface->focus(pointer->grab);
 	wl_signal_emit(&pointer->motion_signal, pointer);
-}
-
-WL_EXPORT void
-weston_pointer_motion_to_abs(struct weston_pointer *pointer,
-			     struct weston_pointer_motion_event *event,
-			     wl_fixed_t *x, wl_fixed_t *y)
-{
-	if (event->mask & WESTON_POINTER_MOTION_ABS) {
-		*x = event->x;
-		*y = event->y;
-	} else if (event->mask & WESTON_POINTER_MOTION_REL) {
-		*x = pointer->x + event->dx;
-		*y = pointer->y + event->dy;
-	} else {
-		assert(!"invalid motion event");
-		*x = *y = 0;
-	}
 }
 
 WL_EXPORT void
@@ -1798,6 +1861,55 @@ seat_get_pointer(struct wl_client *client, struct wl_resource *resource,
 }
 
 static void
+relative_pointer_release(struct wl_client *client,
+			 struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static const struct _wl_relative_pointer_interface relative_pointer_interface = {
+	relative_pointer_release
+};
+
+static void
+seat_get_relative_pointer(struct wl_client *client,
+			  struct wl_resource *resource,
+			  uint32_t id,
+			  struct wl_resource *seat_resource)
+{
+	struct weston_seat *seat = wl_resource_get_user_data(seat_resource);
+	struct wl_resource *cr;
+	struct weston_view *focus;
+
+	if (!seat->pointer)
+		return;
+
+        cr = wl_resource_create(client, &_wl_relative_pointer_interface,
+				wl_resource_get_version(resource), id);
+	if (cr == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	/* May be moved to focused list later by either
+	 * weston_pointer_set_focus or directly if this client is already
+	 * focused */
+	wl_list_insert(&seat->pointer->relative_resource_list,
+		       wl_resource_get_link(cr));
+	wl_resource_set_implementation(cr, &relative_pointer_interface,
+				       seat->pointer,
+				       unbind_resource);
+
+	focus = seat->pointer->focus;
+	if (focus && focus->surface->resource &&
+	    wl_resource_get_client(focus->surface->resource) == client) {
+		wl_list_remove(wl_resource_get_link(cr));
+		wl_list_insert(&seat->pointer->relative_focus_resource_list,
+			       wl_resource_get_link(cr));
+	}
+}
+
+static void
 keyboard_release(struct wl_client *client, struct wl_resource *resource)
 {
 	wl_resource_destroy(resource);
@@ -1940,6 +2052,25 @@ static const struct wl_seat_interface seat_interface = {
 	seat_get_keyboard,
 	seat_get_touch,
 };
+
+static const struct _wl_relative_pointer_manager_interface relative_pointer_manager = {
+	seat_get_relative_pointer,
+};
+
+static void
+bind_relative_pointer_manager(struct wl_client *client, void *data,
+			      uint32_t version, uint32_t id)
+{
+	struct weston_compositor *compositor = data;
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client,
+				      &_wl_relative_pointer_manager_interface,
+				      1, id);
+	wl_resource_set_implementation(resource, &relative_pointer_manager,
+				       compositor,
+				       NULL);
+}
 
 static void
 bind_seat(struct wl_client *client, void *data, uint32_t version, uint32_t id)
@@ -2380,4 +2511,15 @@ weston_seat_release(struct weston_seat *seat)
 	wl_global_destroy(seat->global);
 
 	wl_signal_emit(&seat->destroy_signal, seat);
+}
+
+int
+weston_input_init(struct weston_compositor *compositor)
+{
+	if (!wl_global_create(compositor->wl_display,
+			      &_wl_relative_pointer_manager_interface, 1,
+			      compositor, bind_relative_pointer_manager))
+		return -1;
+
+	return 0;
 }

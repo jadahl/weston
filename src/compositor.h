@@ -330,7 +330,9 @@ struct weston_pointer {
 	struct weston_seat *seat;
 
 	struct wl_list resource_list;
+	struct wl_list relative_resource_list;
 	struct wl_list focus_resource_list;
+	struct wl_list relative_focus_resource_list;
 	struct weston_view *focus;
 	uint32_t focus_serial;
 	struct wl_listener focus_view_listener;
@@ -1484,6 +1486,9 @@ weston_output_mode_switch_to_native(struct weston_output *output);
 
 int
 noop_renderer_init(struct weston_compositor *ec);
+
+int
+weston_input_init(struct weston_compositor *compositor);
 
 struct weston_compositor *
 backend_init(struct wl_display *display, int *argc, char *argv[],

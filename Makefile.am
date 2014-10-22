@@ -81,7 +81,9 @@ nodist_weston_SOURCES =					\
 	protocol/presentation_timing-protocol.c		\
 	protocol/presentation_timing-server-protocol.h	\
 	protocol/scaler-protocol.c			\
-	protocol/scaler-server-protocol.h
+	protocol/scaler-server-protocol.h		\
+	protocol/relative-pointer-protocol.c		\
+	protocol/relative-pointer-server-protocol.h
 
 BUILT_SOURCES += $(nodist_weston_SOURCES)
 
@@ -1003,7 +1005,8 @@ EXTRA_DIST +=					\
 	protocol/xdg-shell.xml			\
 	protocol/fullscreen-shell.xml		\
 	protocol/presentation_timing.xml	\
-	protocol/scaler.xml
+	protocol/scaler.xml			\
+	protocol/relative-pointer.xml
 
 man_MANS = weston.1 weston.ini.5
 
