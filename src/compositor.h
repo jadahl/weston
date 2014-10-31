@@ -349,6 +349,7 @@ struct weston_pointer {
 	struct wl_listener focus_resource_listener;
 	struct wl_signal focus_signal;
 	struct wl_signal motion_signal;
+	struct wl_signal destroy_signal;
 
 	struct weston_view *sprite;
 	struct wl_listener sprite_destroy_listener;
@@ -723,6 +724,8 @@ struct weston_compositor {
 	int exit_code;
 
 	unsigned int activate_serial;
+
+	struct wl_global *pointer_lock;
 };
 
 struct weston_buffer {
@@ -999,6 +1002,24 @@ struct weston_surface {
 	const char *role_name;
 
 	struct weston_timeline_object timeline;
+
+	struct {
+		struct weston_view *view;
+		pixman_region32_t region;
+		struct wl_resource *resource;
+		struct weston_pointer_grab grab;
+		struct weston_pointer *pointer;
+
+		bool hint_set;
+		wl_fixed_t x_hint;
+		wl_fixed_t y_hint;
+
+		struct wl_listener pointer_destroy_listener;
+		struct wl_listener surface_destroy_listener;
+
+		struct wl_listener keyboard_focus_listener;
+		struct wl_listener surface_activate_listener;
+	} pointer_lock;
 };
 
 struct weston_subsurface {

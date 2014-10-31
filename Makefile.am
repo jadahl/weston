@@ -106,6 +106,8 @@ nodist_weston_SOURCES =					\
 	protocol/presentation_timing-server-protocol.h	\
 	protocol/scaler-protocol.c			\
 	protocol/scaler-server-protocol.h		\
+	protocol/pointer-lock-protocol.c		\
+	protocol/pointer-lock-server-protocol.h		\
 	protocol/relative-pointer-protocol.c		\
 	protocol/relative-pointer-server-protocol.h
 
@@ -1186,6 +1188,7 @@ EXTRA_DIST +=					\
 	protocol/scaler.xml			\
 	protocol/ivi-application.xml		\
 	protocol/ivi-hmi-controller.xml		\
+	protocol/pointer-lock.xml		\
 	protocol/relative-pointer.xml
 
 #

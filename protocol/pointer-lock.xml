@@ -1,0 +1,208 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<protocol name="pointer_lock">
+
+  <copyright>
+    Copyright © 2014      Jonas Ådahl
+
+    Permission to use, copy, modify, distribute, and sell this
+    software and its documentation for any purpose is hereby granted
+    without fee, provided that the above copyright notice appear in
+    all copies and that both that copyright notice and this permission
+    notice appear in supporting documentation, and that the name of
+    the copyright holders not be used in advertising or publicity
+    pertaining to distribution of the software without specific,
+    written prior permission.  The copyright holders make no
+    representations about the suitability of this software for any
+    purpose.  It is provided "as is" without express or implied
+    warranty.
+
+    THE COPYRIGHT HOLDERS DISCLAIM ALL WARRANTIES WITH REGARD TO THIS
+    SOFTWARE, INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND
+    FITNESS, IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY
+    SPECIAL, INDIRECT OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+    WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN
+    AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+    ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
+    THIS SOFTWARE.
+  </copyright>
+
+  <interface name="_wl_pointer_lock" version="1">
+    <description summary="lock pointer to a surface">
+      The global interface exposing pointer locking functionality. It exposes
+      two requests; lock_pointer for locking the pointer to its position, and
+      confine_pointer for locking the pointer to a region.
+
+      The lock_pointer and confine_pointer creates the objects wl_locked_pointer
+      and wl_confined_pointer respectively, and the client can use these objects
+      to interact with the lock.
+
+      There may not be another lock of any kind active when requesting a lock,
+      and if there is, an error will be raised.
+    </description>
+
+    <request name="lock_pointer">
+      <description summary="lock pointer to a position">
+        The lock_pointer request lets the client disable absolute pointer
+        movements, locking the pointer to a position.
+
+        There may not be another lock of any kind active when requesting a lock,
+        and if there is, an error will be raised.
+
+        The intersection of the region passed with this request and the input
+        region of the surface is used to determine where the pointer must be
+        in order for the lock to activate. It is up to the compositor to warp
+        the pointer, or require some kind of user interaction for the lock to
+        activate. If the region is null the surface input region is used.
+
+        The request will create a new object wl_locked_pointer which is used to
+        interact with the lock as well as receive updates about its state. See
+        the the description of wl_locked_pointer for further information.
+
+        Note that while a locked pointer doesn't move its absolute position, it
+        may still emit relative motion events via the wl_relative_pointer
+        object.
+      </description>
+
+      <arg name="id" type="new_id" interface="_wl_locked_pointer"/>
+      <arg name="surface" type="object" interface="wl_surface"
+           summary="surface to lock pointer to"/>
+      <arg name="seat" type="object" interface="wl_seat"
+           summary="seat where the pointer should be locked"/>
+      <arg name="region" type="object" interface="wl_region" allow-null="true"
+           summary="region of surface"/>
+    </request>
+
+    <request name="confine_pointer">
+      <description summary="confine pointer to a region">
+        The confine_pointer request lets the client confine the pointer cursor
+        to a given region.
+
+        The intersection of the region passed with this request and the input
+        region of the surface is used to determine where the pointer must be
+        in order for the confinement to activate. It is up to the compositor to
+        warp the pointer, or require some kind of user interaction for the
+        confinement to activate. If the region is null the surface input region
+        is used.
+
+        The request will create a new object wl_confined_pointer which is used
+        to interact with the confinement as well as receive updates about its
+        state. See the the description of wl_confined_pointer for further
+        information.
+      </description>
+
+      <arg name="id" type="new_id" interface="_wl_confined_pointer"/>
+      <arg name="surface" type="object" interface="wl_surface"
+           summary="surface to lock pointer to"/>
+      <arg name="seat" type="object" interface="wl_seat"
+           summary="seat where the pointer should be locked"/>
+      <arg name="region" type="object" interface="wl_region" allow-null="true"
+           summary="region of surface"/>
+    </request>
+
+  </interface>
+
+  <interface name="_wl_locked_pointer" version="1">
+    <description summary="receive relative pointer motion events">
+      The wl_locked_pointer interface represents a locked pointer state.
+
+      While the lock of this object is active, the pointer of the associated
+      seat will not move.
+
+      This object will send the event 'locked' when the lock is activated.
+      Whenever the lock is activated, it is guaranteed that the locked surface
+      will already have received pointer focus and that the pointer will be
+      within the region passed to the request creating this object.
+
+      To unlock the pointer, send the destroy request. This will also destroy
+      the wl_locked_pointer object.
+
+      If the compositor decides to unlock the pointer the unlocked event is sent.
+      The wl_locked_pointer object is at this point defunct and should be
+      destroyed.
+
+      When unlocking, the compositor may or may not take the cursor position
+      hint provided using the set_cursor_position_hint request and warp the
+      pointer. If it does, it will not result in any relative motion events.
+    </description>
+
+    <request name="set_cursor_position_hint">
+      <description summary="set the pointer cursor position hint">
+        Set the cursor position hint relative to the top left corner of the
+        surface.
+
+        If the client is drawing its own cursor, it should update the position
+        hint to the position of its own cursor. A compositor may use this
+        information to warp the pointer upon unlock in order to avoid pointer
+        jumps.
+      </description>
+
+      <arg name="surface_x" type="fixed"
+           summary="x coordinate in surface-relative coordinates"/>
+      <arg name="surface_y" type="fixed"
+           summary="y coordinate in surface-relative coordinates"/>
+    </request>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the locked pointer object">
+        Destroy the locked pointer object. The compositor will unlock the
+        pointer.
+      </description>
+    </request>
+
+    <event name="locked">
+      <description summary="enter event">
+        Notification that the pointer lock of this seat's pointer is activated.
+      </description>
+    </event>
+
+    <event name="unlocked">
+      <description summary="leave event">
+        Notification that the pointer lock of seat's pointer is no longer
+        active. This object is no defunct and should be destroyed.
+      </description>
+    </event>
+  </interface>
+
+  <interface name="_wl_confined_pointer" version="1">
+    <description summary="confined pointer object">
+      The wl_confined_pointer interface represents a confined pointer state.
+
+      This object will send the event 'confined' when the confinement is
+      activated. Whenever the confinement is activated, it is guaranteed that
+      the surface the pointer is confined to will already have received pointer
+      focus and that the pointer will be within the region passed to the request
+      creating this object. It is up to the compositor to decide whether this
+      requires some user interaction and if the pointer will warp to within the
+      passed region if outside.
+
+      To unconfine the pointer, send the destroy request. This will also destroy
+      the wl_confined_pointer object.
+
+      If the compositor decides to unconfine the pointer the unconfined event is
+      sent. The wl_confined_pointer object is at this point defunct and should
+      be destoryed.
+    </description>
+
+    <request name="destroy" type="destructor">
+      <description summary="destroy the confined pointer object">
+        Destroy the confined pointer object. The compositor will unconfine the
+        pointer.
+      </description>
+    </request>
+
+    <event name="confined">
+      <description summary="enter event">
+        Notification that the pointer confinement of this seat's pointer is
+        activated.
+      </description>
+    </event>
+
+    <event name="unconfined">
+      <description summary="leave event">
+        Notification that the pointer confinement of seat's pointer is no
+        longer active. This object is no defunct and should be destroyed.
+      </description>
+    </event>
+  </interface>
+
+</protocol>

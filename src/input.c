@@ -22,6 +22,7 @@
 
 #include "config.h"
 
+#include <stdbool.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <string.h>
@@ -34,6 +35,7 @@
 #include "../shared/os-compatibility.h"
 #include "../shared/util.h"
 #include "compositor.h"
+#include "protocol/pointer-lock-server-protocol.h"
 #include "protocol/relative-pointer-server-protocol.h"
 
 static void
@@ -41,6 +43,13 @@ empty_region(pixman_region32_t *region)
 {
 	pixman_region32_fini(region);
 	pixman_region32_init(region);
+}
+
+static void
+region_init_infinite(pixman_region32_t *region)
+{
+	pixman_region32_init_rect(region, INT32_MIN, INT32_MIN,
+				  UINT32_MAX, UINT32_MAX);
 }
 
 static void unbind_resource(struct wl_resource *resource)
@@ -243,12 +252,22 @@ weston_pointer_send_relative_motion(struct weston_pointer *pointer,
 }
 
 static void
+weston_pointer_send_motion(struct weston_pointer *pointer, uint32_t time,
+			   wl_fixed_t sx, wl_fixed_t sy)
+{
+	struct wl_list *resource_list;
+	struct wl_resource *resource;
+
+	resource_list = &pointer->focus_resource_list;
+	wl_resource_for_each(resource, resource_list)
+		wl_pointer_send_motion(resource, time, sx, sy);
+}
+
+static void
 default_grab_pointer_motion(struct weston_pointer_grab *grab, uint32_t time,
 			    struct weston_pointer_motion_event *event)
 {
 	struct weston_pointer *pointer = grab->pointer;
-	struct wl_list *resource_list;
-	struct wl_resource *resource;
 	wl_fixed_t x, y;
 	wl_fixed_t old_sx = pointer->sx;
 	wl_fixed_t old_sy = pointer->sy;
@@ -262,14 +281,33 @@ default_grab_pointer_motion(struct weston_pointer_grab *grab, uint32_t time,
 	weston_pointer_move(pointer, event);
 
 	if (old_sx != pointer->sx || old_sy != pointer->sy) {
-		resource_list = &pointer->focus_resource_list;
-		wl_resource_for_each(resource, resource_list) {
-			wl_pointer_send_motion(resource, time,
-					       pointer->sx, pointer->sy);
-		}
+		weston_pointer_send_motion(pointer, time,
+					   pointer->sx, pointer->sy);
 	}
 
 	weston_pointer_send_relative_motion(pointer, time, event);
+}
+
+static void
+weston_pointer_send_button(struct weston_pointer *pointer,
+			   uint32_t time, uint32_t button, uint32_t state_w)
+{
+	struct wl_resource *resource;
+	uint32_t serial;
+	struct wl_list *resource_list;
+	struct wl_display *display = pointer->seat->compositor->wl_display;
+
+	resource_list = &pointer->focus_resource_list;
+	if (!wl_list_empty(resource_list)) {
+		serial = wl_display_next_serial(display);
+		wl_resource_for_each(resource, resource_list) {
+			wl_pointer_send_button(resource,
+					       serial,
+					       time,
+					       button,
+					       state_w);
+		}
+	}
 }
 
 static void
@@ -279,23 +317,10 @@ default_grab_pointer_button(struct weston_pointer_grab *grab,
 	struct weston_pointer *pointer = grab->pointer;
 	struct weston_compositor *compositor = pointer->seat->compositor;
 	struct weston_view *view;
-	struct wl_resource *resource;
-	uint32_t serial;
 	enum wl_pointer_button_state state = state_w;
-	struct wl_display *display = compositor->wl_display;
 	wl_fixed_t sx, sy;
-	struct wl_list *resource_list;
 
-	resource_list = &pointer->focus_resource_list;
-	if (!wl_list_empty(resource_list)) {
-		serial = wl_display_next_serial(display);
-		wl_resource_for_each(resource, resource_list)
-			wl_pointer_send_button(resource,
-					       serial,
-					       time,
-					       button,
-					       state_w);
-	}
+	weston_pointer_send_button(pointer, time, button, state_w);
 
 	if (pointer->button_count == 0 &&
 	    state == WL_POINTER_BUTTON_STATE_RELEASED) {
@@ -587,6 +612,7 @@ weston_pointer_create(struct weston_seat *seat)
 	wl_signal_init(&pointer->motion_signal);
 	wl_signal_init(&pointer->focus_signal);
 	wl_list_init(&pointer->focus_view_listener.link);
+	wl_signal_init(&pointer->destroy_signal);
 
 	pointer->sprite_destroy_listener.notify = pointer_handle_sprite_destroy;
 
@@ -605,6 +631,8 @@ weston_pointer_create(struct weston_seat *seat)
 WL_EXPORT void
 weston_pointer_destroy(struct weston_pointer *pointer)
 {
+	wl_signal_emit(&pointer->destroy_signal, pointer);
+
 	if (pointer->sprite)
 		pointer_unmap_sprite(pointer);
 
@@ -2560,12 +2588,528 @@ weston_seat_release(struct weston_seat *seat)
 	wl_signal_emit(&seat->destroy_signal, seat);
 }
 
+static const struct _wl_locked_pointer_interface locked_pointer_interface;
+static const struct _wl_confined_pointer_interface confined_pointer_interface;
+
+static void
+pointer_lock_notify_activated(struct weston_surface *surface)
+{
+	struct wl_resource *resource = surface->pointer_lock.resource;
+
+	if (wl_resource_instance_of(resource,
+				    &_wl_locked_pointer_interface,
+				    &locked_pointer_interface)) {
+		_wl_locked_pointer_send_locked(resource);
+	} else if (wl_resource_instance_of(resource,
+					   &_wl_confined_pointer_interface,
+					   &confined_pointer_interface)) {
+		_wl_confined_pointer_send_confined(resource);
+	}
+}
+
+static void
+pointer_lock_notify_deactivated(struct weston_surface *surface)
+{
+	struct wl_resource *resource = surface->pointer_lock.resource;
+
+	if (wl_resource_instance_of(resource,
+				    &_wl_locked_pointer_interface,
+				    &locked_pointer_interface)) {
+		_wl_locked_pointer_send_unlocked(resource);
+	} else if (wl_resource_instance_of(resource,
+					   &_wl_confined_pointer_interface,
+					   &confined_pointer_interface)) {
+		_wl_confined_pointer_send_unconfined(resource);
+	}
+}
+
+static void
+enable_pointer_lock(struct weston_view *view,
+		    struct weston_pointer *pointer)
+{
+	struct weston_surface *surface = view->surface;
+
+	assert(surface->pointer_lock.view == NULL);
+	surface->pointer_lock.view = view;
+	pointer_lock_notify_activated(surface);
+	weston_pointer_start_grab(pointer, &surface->pointer_lock.grab);
+}
+
+static bool
+is_pointer_lock_enabled(struct weston_surface *surface)
+{
+	return surface->pointer_lock.view != NULL;
+}
+
+static void
+disable_pointer_lock(struct weston_surface *surface)
+{
+	if (is_pointer_lock_enabled(surface)) {
+		pointer_lock_notify_deactivated(surface);
+		weston_pointer_end_grab(surface->pointer_lock.grab.pointer);
+		surface->pointer_lock.view = NULL;
+	}
+
+	surface->pointer_lock.resource = NULL;
+	surface->pointer_lock.pointer = NULL;
+
+	surface->pointer_lock.hint_set = false;
+
+	wl_list_remove(&surface->pointer_lock.pointer_destroy_listener.link);
+	wl_list_remove(&surface->pointer_lock.surface_destroy_listener.link);
+	wl_list_remove(&surface->pointer_lock.surface_activate_listener.link);
+}
+
+static bool
+is_within_lock_region(struct weston_surface *surface,
+		      wl_fixed_t sx, wl_fixed_t sy)
+{
+	pixman_region32_t lock_region;
+	bool result;
+
+	pixman_region32_init(&lock_region);
+	pixman_region32_intersect(&lock_region,
+				  &surface->input,
+				  &surface->pointer_lock.region);
+	result = pixman_region32_contains_point(&lock_region,
+						wl_fixed_to_int(sx),
+						wl_fixed_to_int(sy),
+						NULL);
+	pixman_region32_fini(&lock_region);
+
+	return result;
+}
+
+static void
+maybe_enable_pointer_lock(struct weston_surface *surface)
+{
+	struct weston_view *vit;
+	struct weston_view *view = NULL;
+	struct weston_pointer *pointer = surface->pointer_lock.pointer;
+	struct weston_seat *seat = pointer->seat;
+	int32_t x, y;
+
+	/* Postpone if no view of the surface was most recently clicked. */
+	wl_list_for_each(vit, &surface->views, surface_link) {
+		if (vit->click_to_activate_serial ==
+		    surface->compositor->activate_serial) {
+			view = vit;
+		}
+	}
+	if (view == NULL)
+		return;
+
+	/* Postpone if surface doesn't have keyboard focus. */
+	if (seat->keyboard->focus != surface)
+		return;
+
+	/* Postpone lock if the pointer is not within the lock region. */
+	weston_view_from_global(view,
+				wl_fixed_to_int(pointer->x),
+				wl_fixed_to_int(pointer->y),
+				&x, &y);
+	if (!is_within_lock_region(surface,
+				   wl_fixed_from_int(x),
+				   wl_fixed_from_int(y)))
+		return;
+
+	enable_pointer_lock(view, pointer);
+}
+
+static void
+locked_pointer_grab_pointer_focus(struct weston_pointer_grab *grab)
+{
+}
+
+static void
+locked_pointer_grab_pointer_motion(struct weston_pointer_grab *grab,
+				   uint32_t time,
+				   struct weston_pointer_motion_event *event)
+{
+	weston_pointer_send_relative_motion(grab->pointer, time, event);
+}
+
+static void
+locked_pointer_grab_pointer_button(struct weston_pointer_grab *grab,
+				   uint32_t time,
+				   uint32_t button,
+				   uint32_t state_w)
+{
+	weston_pointer_send_button(grab->pointer, time, button, state_w);
+}
+
+static void
+locked_pointer_grab_pointer_axis(struct weston_pointer_grab *grab,
+				 uint32_t time, uint32_t axis, wl_fixed_t value)
+{
+	weston_pointer_send_axis(grab->pointer, time, axis, value);
+}
+
+static void
+locked_pointer_grab_pointer_cancel(struct weston_pointer_grab *grab)
+{
+	struct weston_surface *surface =
+		container_of(grab, struct weston_surface, pointer_lock.grab);
+
+	disable_pointer_lock(surface);
+}
+
+static const struct weston_pointer_grab_interface
+				locked_pointer_grab_interface = {
+	locked_pointer_grab_pointer_focus,
+	locked_pointer_grab_pointer_motion,
+	locked_pointer_grab_pointer_button,
+	locked_pointer_grab_pointer_axis,
+	locked_pointer_grab_pointer_cancel,
+};
+
+static void
+pointer_lock_lock_resource_destroyed(struct wl_resource *resource)
+{
+	struct weston_surface *surface = wl_resource_get_user_data(resource);
+
+	if (!surface->pointer_lock.resource)
+		return;
+
+	disable_pointer_lock(surface);
+}
+
+static void
+pointer_lock_surface_activate(struct wl_listener *listener, void *data)
+{
+	struct weston_surface *focus = data;
+	struct weston_surface *locked_surface =
+		container_of(listener, struct weston_surface,
+			     pointer_lock.surface_activate_listener);
+
+	if (focus == locked_surface && !is_pointer_lock_enabled(locked_surface))
+		maybe_enable_pointer_lock(locked_surface);
+	else if (focus != locked_surface &&
+		 is_pointer_lock_enabled(locked_surface))
+		disable_pointer_lock(locked_surface);
+}
+
+static void
+pointer_lock_pointer_destroyed(struct wl_listener *listener, void *data)
+{
+	struct weston_surface *surface =
+		container_of(listener, struct weston_surface,
+			     pointer_lock.pointer_destroy_listener);
+
+	disable_pointer_lock(surface);
+}
+
+static void
+pointer_lock_surface_destroyed(struct wl_listener *listener, void *data)
+{
+	struct weston_surface *surface =
+		container_of(listener, struct weston_surface,
+			     pointer_lock.surface_destroy_listener);
+
+	disable_pointer_lock(surface);
+}
+
+static void
+init_pointer_lock(struct wl_resource *pointer_lock_resource,
+		  uint32_t id,
+		  struct weston_surface *surface,
+		  struct weston_seat *seat,
+		  struct weston_region *region,
+		  const struct wl_interface *interface,
+		  const void *implementation,
+		  const struct weston_pointer_grab_interface *grab_interface)
+{
+	struct wl_client *client =
+		wl_resource_get_client(pointer_lock_resource);
+	struct weston_pointer *pointer = seat->pointer;
+	struct wl_resource *cr;
+
+	if (surface->pointer_lock.resource) {
+		wl_resource_post_error(pointer_lock_resource,
+				       WL_DISPLAY_ERROR_INVALID_OBJECT,
+				       "pointer already locked or confined");
+		return;
+	}
+
+        cr = wl_resource_create(client, interface,
+				wl_resource_get_version(pointer_lock_resource),
+				id);
+	if (cr == NULL) {
+		wl_client_post_no_memory(client);
+		return;
+	}
+
+	wl_resource_set_implementation(cr, implementation, surface,
+				       pointer_lock_lock_resource_destroyed);
+
+	surface->pointer_lock.pointer = pointer;
+	surface->pointer_lock.resource = cr;
+	surface->pointer_lock.grab.interface = grab_interface;
+	if (region) {
+		pixman_region32_copy(&surface->pointer_lock.region,
+				     &region->region);
+	} else {
+		pixman_region32_fini(&surface->pointer_lock.region);
+		region_init_infinite(&surface->pointer_lock.region);
+	}
+
+	surface->pointer_lock.surface_activate_listener.notify =
+		pointer_lock_surface_activate;
+	surface->pointer_lock.surface_destroy_listener.notify =
+		pointer_lock_surface_destroyed;
+	surface->pointer_lock.pointer_destroy_listener.notify =
+		pointer_lock_pointer_destroyed;
+
+	wl_signal_add(&surface->compositor->activate_signal,
+		      &surface->pointer_lock.surface_activate_listener);
+	wl_signal_add(&seat->pointer->destroy_signal,
+		      &surface->pointer_lock.pointer_destroy_listener);
+	wl_signal_add(&surface->destroy_signal,
+		      &surface->pointer_lock.surface_destroy_listener);
+
+	maybe_enable_pointer_lock(surface);
+}
+
+
+static void
+locked_pointer_set_cursor_position_hint(struct wl_client *client,
+					struct wl_resource *resource,
+					wl_fixed_t surface_x,
+					wl_fixed_t surface_y)
+{
+	struct weston_surface *surface = wl_resource_get_user_data(resource);
+
+	/* Ignore a set cursor hint that was already sent after the lock
+	 * was cancelled. */
+	if (!surface->pointer_lock.resource ||
+	    surface->pointer_lock.resource != resource)
+		return;
+
+	surface->pointer_lock.hint_set = true;
+	surface->pointer_lock.x_hint = surface_x;
+	surface->pointer_lock.y_hint = surface_y;
+}
+
+static void
+locked_pointer_destroy(struct wl_client *client,
+		       struct wl_resource *resource)
+{
+	struct weston_surface *surface = wl_resource_get_user_data(resource);
+	wl_fixed_t x_hint = surface->pointer_lock.x_hint;
+	wl_fixed_t y_hint = surface->pointer_lock.y_hint;
+	wl_fixed_t x, y;
+
+	if (surface->pointer_lock.view &&
+	    surface->pointer_lock.hint_set &&
+	    is_within_lock_region(surface, x_hint, y_hint)) {
+		weston_view_to_global_fixed(surface->pointer_lock.view,
+					    x_hint, y_hint,
+					    &x, &y);
+		weston_pointer_move_to(surface->pointer_lock.pointer, x, y);
+	}
+	wl_resource_destroy(resource);
+}
+
+static const struct _wl_locked_pointer_interface locked_pointer_interface = {
+	locked_pointer_set_cursor_position_hint,
+	locked_pointer_destroy,
+};
+
+static void
+pointer_lock_lock_pointer(struct wl_client *client,
+			  struct wl_resource *resource,
+			  uint32_t id,
+			  struct wl_resource *surface_resource,
+			  struct wl_resource *seat_resource,
+			  struct wl_resource *region_resource)
+{
+	struct weston_surface *surface =
+		wl_resource_get_user_data(surface_resource);
+	struct weston_seat *seat = wl_resource_get_user_data(seat_resource);
+	struct weston_region *region = region_resource ?
+		wl_resource_get_user_data(region_resource) : NULL;
+
+	init_pointer_lock(resource, id, surface, seat, region,
+			  &_wl_locked_pointer_interface,
+			  &locked_pointer_interface,
+			  &locked_pointer_grab_interface);
+}
+
+static void
+confined_pointer_grab_pointer_focus(struct weston_pointer_grab *grab)
+{
+}
+
+static void
+weston_pointer_clamp_event_to_region(struct weston_pointer *pointer,
+				     struct weston_pointer_motion_event *event,
+				     pixman_region32_t *region,
+				     wl_fixed_t *clamped_x,
+				     wl_fixed_t *clamped_y)
+{
+	wl_fixed_t x, y;
+	wl_fixed_t sx, sy;
+	wl_fixed_t min_sx = wl_fixed_from_int(region->extents.x1);
+	wl_fixed_t max_sx = wl_fixed_from_int(region->extents.x2 - 1);
+	wl_fixed_t max_sy = wl_fixed_from_int(region->extents.y2 - 1);
+	wl_fixed_t min_sy = wl_fixed_from_int(region->extents.y1);
+
+	weston_pointer_motion_to_abs(pointer, event, &x, &y);
+	weston_view_from_global_fixed(pointer->focus, x, y, &sx, &sy);
+
+	if (sx < min_sx)
+		sx = min_sx;
+	else if (sx > max_sx)
+		sx = max_sx;
+
+	if (sy < min_sy)
+		sy = min_sy;
+	else if (sy > max_sy)
+		sy = max_sy;
+
+	weston_view_to_global_fixed(pointer->focus, sx, sy,
+				    clamped_x, clamped_y);
+}
+
+static void
+confined_pointer_grab_pointer_motion(struct weston_pointer_grab *grab,
+				     uint32_t time,
+				     struct weston_pointer_motion_event *event)
+{
+	struct weston_pointer *pointer = grab->pointer;
+	struct weston_surface *surface;
+	wl_fixed_t x, y;
+	wl_fixed_t old_sx = pointer->sx;
+	wl_fixed_t old_sy = pointer->sy;
+	pixman_region32_t confine_region;
+
+	assert(pointer->focus);
+	assert(pointer->focus->surface->pointer_lock.pointer == pointer);
+
+	surface = pointer->focus->surface;
+
+	pixman_region32_init(&confine_region);
+	pixman_region32_intersect(&confine_region,
+				  &surface->input,
+				  &surface->pointer_lock.region);
+	weston_pointer_clamp_event_to_region(pointer, event,
+					     &confine_region, &x, &y);
+	weston_pointer_move_to(pointer, x, y);
+	pixman_region32_fini(&confine_region);
+
+	weston_view_from_global_fixed(pointer->focus, x, y,
+				      &pointer->sx, &pointer->sy);
+
+	if (old_sx != pointer->sx || old_sy != pointer->sy) {
+		weston_pointer_send_motion(pointer, time,
+					   pointer->sx, pointer->sy);
+	}
+
+	weston_pointer_send_relative_motion(pointer, time, event);
+}
+
+static void
+confined_pointer_grab_pointer_button(struct weston_pointer_grab *grab,
+				     uint32_t time,
+				     uint32_t button,
+				     uint32_t state_w)
+{
+	weston_pointer_send_button(grab->pointer, time, button, state_w);
+}
+
+static void
+confined_pointer_grab_pointer_axis(struct weston_pointer_grab *grab,
+				   uint32_t time,
+				   uint32_t axis,
+				   wl_fixed_t value)
+{
+	weston_pointer_send_axis(grab->pointer, time, axis, value);
+}
+
+static void
+confined_pointer_grab_pointer_cancel(struct weston_pointer_grab *grab)
+{
+	struct weston_surface *surface =
+		container_of(grab, struct weston_surface, pointer_lock.grab);
+
+	disable_pointer_lock(surface);
+}
+
+static const struct weston_pointer_grab_interface
+				confined_pointer_grab_interface = {
+	confined_pointer_grab_pointer_focus,
+	confined_pointer_grab_pointer_motion,
+	confined_pointer_grab_pointer_button,
+	confined_pointer_grab_pointer_axis,
+	confined_pointer_grab_pointer_cancel,
+};
+
+static void
+confined_pointer_destroy(struct wl_client *client,
+			 struct wl_resource *resource)
+{
+	wl_resource_destroy(resource);
+}
+
+static const struct _wl_confined_pointer_interface confined_pointer_interface = {
+	confined_pointer_destroy,
+};
+
+static void
+pointer_lock_confine_pointer(struct wl_client *client,
+			     struct wl_resource *resource,
+			     uint32_t id,
+			     struct wl_resource *surface_resource,
+			     struct wl_resource *seat_resource,
+			     struct wl_resource *region_resource)
+{
+	struct weston_surface *surface =
+		wl_resource_get_user_data(surface_resource);
+	struct weston_seat *seat = wl_resource_get_user_data(seat_resource);
+	struct weston_region *region = region_resource ?
+		wl_resource_get_user_data(region_resource) : NULL;
+
+	if ((region && pixman_region32_n_rects(&region->region) != 1) ||
+	    pixman_region32_n_rects(&surface->input) != 1) {
+		weston_log("warning: confinement only implemented for"
+			   "rectangular regions\n");
+		return;
+	}
+
+	init_pointer_lock(resource, id, surface, seat, region,
+			  &_wl_confined_pointer_interface,
+			  &confined_pointer_interface,
+			  &confined_pointer_grab_interface);
+}
+
+static const struct _wl_pointer_lock_interface pointer_lock_interface = {
+	pointer_lock_lock_pointer,
+	pointer_lock_confine_pointer,
+};
+
+static void
+bind_pointer_lock(struct wl_client *client, void *data,
+		  uint32_t version, uint32_t id)
+{
+	struct wl_resource *resource;
+
+	resource = wl_resource_create(client, &_wl_pointer_lock_interface,
+				      1, id);
+	wl_resource_set_implementation(resource, &pointer_lock_interface,
+				       NULL, NULL);
+}
+
 int
 weston_input_init(struct weston_compositor *compositor)
 {
 	if (!wl_global_create(compositor->wl_display,
 			      &_wl_relative_pointer_manager_interface, 1,
 			      compositor, bind_relative_pointer_manager))
+		return -1;
+
+	if (!wl_global_create(compositor->wl_display,
+			      &_wl_pointer_lock_interface, 1,
+			      NULL, bind_pointer_lock))
 		return -1;
 
 	return 0;
