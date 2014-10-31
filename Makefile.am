@@ -82,6 +82,8 @@ nodist_weston_SOURCES =					\
 	protocol/presentation_timing-server-protocol.h	\
 	protocol/scaler-protocol.c			\
 	protocol/scaler-server-protocol.h		\
+	protocol/pointer-lock-protocol.c		\
+	protocol/pointer-lock-server-protocol.h		\
 	protocol/relative-pointer-protocol.c		\
 	protocol/relative-pointer-server-protocol.h
 
@@ -1006,6 +1008,7 @@ EXTRA_DIST +=					\
 	protocol/fullscreen-shell.xml		\
 	protocol/presentation_timing.xml	\
 	protocol/scaler.xml			\
+	protocol/pointer-lock.xml		\
 	protocol/relative-pointer.xml
 
 man_MANS = weston.1 weston.ini.5

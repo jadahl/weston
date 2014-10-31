@@ -645,6 +645,8 @@ weston_surface_create(struct weston_compositor *compositor)
 	wl_list_init(&surface->subsurface_list);
 	wl_list_init(&surface->subsurface_list_pending);
 
+	region_init_infinite(&surface->pointer_lock.region);
+
 	return surface;
 }
 
@@ -1658,6 +1660,8 @@ weston_surface_destroy(struct weston_surface *surface)
 		wl_resource_destroy(cb->resource);
 
 	weston_presentation_feedback_discard_list(&surface->feedback_list);
+
+	pixman_region32_fini(&surface->pointer_lock.region);
 
 	free(surface);
 }
