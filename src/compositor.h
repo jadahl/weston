@@ -58,6 +58,7 @@ struct weston_output;
 struct input_method;
 struct weston_pointer;
 struct linux_dmabuf_buffer;
+struct weston_pointer_constraint;
 
 enum weston_keyboard_modifier {
 	MODIFIER_CTRL = (1 << 0),
@@ -350,6 +351,7 @@ struct weston_pointer {
 	struct wl_listener focus_resource_listener;
 	struct wl_signal focus_signal;
 	struct wl_signal motion_signal;
+	struct wl_signal destroy_signal;
 
 	struct weston_view *sprite;
 	struct wl_listener sprite_destroy_listener;
@@ -423,6 +425,9 @@ weston_pointer_move(struct weston_pointer *pointer,
 void
 weston_pointer_set_default_grab(struct weston_pointer *pointer,
 		const struct weston_pointer_grab_interface *interface);
+
+void
+weston_pointer_constraint_destroy(struct weston_pointer_constraint *constraint);
 
 struct weston_keyboard *
 weston_keyboard_create(void);
@@ -764,6 +769,8 @@ struct weston_compositor {
 
 	unsigned int activate_serial;
 
+	struct wl_global *pointer_constraints;
+
 	int exit_code;
 
 	void *user_data;
@@ -961,10 +968,38 @@ struct weston_surface_state {
 	struct weston_buffer_viewport buffer_viewport;
 };
 
+struct weston_surface_activation_data {
+	struct weston_surface *surface;
+	struct weston_seat *seat;
+};
+
+struct weston_pointer_constraint {
+	struct wl_list link;
+
+	struct weston_surface *surface;
+	struct weston_view *view;
+	pixman_region32_t region;
+	pixman_region32_t pending_region;
+	bool pending_region_set;
+	struct wl_resource *resource;
+	struct weston_pointer_grab grab;
+	struct weston_pointer *pointer;
+
+	bool hint_set;
+	wl_fixed_t x_hint;
+	wl_fixed_t y_hint;
+
+	struct wl_listener pointer_destroy_listener;
+	struct wl_listener surface_destroy_listener;
+	struct wl_listener surface_commit_listener;
+	struct wl_listener surface_activate_listener;
+};
+
 struct weston_surface {
 	struct wl_resource *resource;
 	struct wl_signal destroy_signal; /* callback argument: this surface */
 	struct weston_compositor *compositor;
+	struct wl_signal commit_signal;
 
 	/** Damage in local coordinates from the client, for tex upload. */
 	pixman_region32_t damage;
@@ -1044,6 +1079,9 @@ struct weston_surface {
 	const char *role_name;
 
 	struct weston_timeline_object timeline;
+
+	/* An list of per seat pointer constraints. */
+	struct wl_list pointer_constraints;
 };
 
 struct weston_subsurface {

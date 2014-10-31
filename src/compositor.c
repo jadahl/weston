@@ -585,6 +585,7 @@ weston_surface_create(struct weston_compositor *compositor)
 		return NULL;
 
 	wl_signal_init(&surface->destroy_signal);
+	wl_signal_init(&surface->commit_signal);
 
 	surface->compositor = compositor;
 	surface->ref_count = 1;
@@ -610,6 +611,8 @@ weston_surface_create(struct weston_compositor *compositor)
 
 	weston_matrix_init(&surface->buffer_to_surface_matrix);
 	weston_matrix_init(&surface->surface_to_buffer_matrix);
+
+	wl_list_init(&surface->pointer_constraints);
 
 	return surface;
 }
@@ -1821,6 +1824,7 @@ weston_surface_destroy(struct weston_surface *surface)
 {
 	struct weston_frame_callback *cb, *next;
 	struct weston_view *ev, *nv;
+	struct weston_pointer_constraint *constraint, *next_constraint;
 
 	if (--surface->ref_count > 0)
 		return;
@@ -1847,6 +1851,11 @@ weston_surface_destroy(struct weston_surface *surface)
 		wl_resource_destroy(cb->resource);
 
 	weston_presentation_feedback_discard_list(&surface->feedback_list);
+
+	wl_list_for_each_safe(constraint, next_constraint,
+			      &surface->pointer_constraints,
+			      link)
+		weston_pointer_constraint_destroy(constraint);
 
 	free(surface);
 }
@@ -2762,6 +2771,8 @@ weston_surface_commit_state(struct weston_surface *surface,
 	wl_list_insert_list(&surface->feedback_list,
 			    &state->feedback_list);
 	wl_list_init(&state->feedback_list);
+
+	wl_signal_emit(&surface->commit_signal, surface);
 }
 
 static void
