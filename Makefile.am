@@ -449,7 +449,11 @@ nodist_libtoytoolkit_la_SOURCES =			\
 	protocol/presentation_timing-protocol.c		\
 	protocol/presentation_timing-client-protocol.h	\
 	protocol/xdg-shell-protocol.c			\
-	protocol/xdg-shell-client-protocol.h
+	protocol/xdg-shell-client-protocol.h		\
+	protocol/pointer-lock-protocol.c		\
+	protocol/pointer-lock-client-protocol.h		\
+	protocol/relative-pointer-protocol.c		\
+	protocol/relative-pointer-client-protocol.h
 
 BUILT_SOURCES += $(nodist_libtoytoolkit_la_SOURCES)
 
