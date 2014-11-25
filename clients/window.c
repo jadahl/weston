@@ -23,6 +23,7 @@
 
 #include "config.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,7 +70,10 @@ typedef void *EGLContext;
 #include "xdg-shell-client-protocol.h"
 #include "text-cursor-position-client-protocol.h"
 #include "workspaces-client-protocol.h"
+#include "pointer-lock-client-protocol.h"
+#include "relative-pointer-client-protocol.h"
 #include "../shared/os-compatibility.h"
+#include "../shared/util.h"
 
 #include "window.h"
 
@@ -97,6 +101,8 @@ struct display {
 	struct workspace_manager *workspace_manager;
 	struct xdg_shell *xdg_shell;
 	struct ivi_application *ivi_application; /* ivi style shell */
+	struct _wl_relative_pointer_manager *relative_pointer_manager;
+	struct _wl_pointer_lock *pointer_lock;
 	EGLDisplay dpy;
 	EGLConfig argb_config;
 	EGLContext argb_ctx;
@@ -249,6 +255,8 @@ struct window {
 	window_output_handler_t output_handler;
 	window_state_changed_handler_t state_changed_handler;
 
+	window_locked_pointer_motion_handler_t locked_pointer_motion_handler;
+
 	struct surface *main_surface;
 	struct xdg_surface *xdg_surface;
 	struct xdg_popup *xdg_popup;
@@ -262,6 +270,17 @@ struct window {
 
 	/* struct surface::link, contains also main_surface */
 	struct wl_list subsurface_list;
+
+	struct _wl_relative_pointer *relative_pointer;
+	struct _wl_locked_pointer *locked_pointer;
+	struct input *locked_input;
+	bool pointer_locked;
+	locked_pointer_locked_handler_t pointer_locked_handler;
+	locked_pointer_unlocked_handler_t pointer_unlocked_handler;
+	confined_pointer_confined_handler_t pointer_confined_handler;
+	confined_pointer_unconfined_handler_t pointer_unconfined_handler;
+
+	struct _wl_confined_pointer *confined_pointer;
 
 	void *user_data;
 	struct wl_list link;
@@ -4403,6 +4422,43 @@ window_set_state_changed_handler(struct window *window,
 }
 
 void
+window_set_pointer_locked_handler(struct window *window,
+				  locked_pointer_locked_handler_t locked)
+{
+	window->pointer_locked_handler = locked;
+}
+
+void
+window_set_pointer_unlocked_handler(struct window *window,
+				    locked_pointer_unlocked_handler_t unlocked)
+{
+	window->pointer_unlocked_handler = unlocked;
+}
+
+void
+window_set_pointer_confined_handler(
+	struct window *window, confined_pointer_confined_handler_t confined)
+{
+	window->pointer_confined_handler = confined;
+}
+
+void
+window_set_pointer_unconfined_handler(
+	struct window *window,
+	confined_pointer_unconfined_handler_t unconfined)
+{
+	window->pointer_unconfined_handler = unconfined;
+}
+
+void
+window_set_locked_pointer_motion_handler(
+	struct window *window,
+	window_locked_pointer_motion_handler_t handler)
+{
+	window->locked_pointer_motion_handler = handler;
+}
+
+void
 window_set_title(struct window *window, const char *title)
 {
 	free(window->title);
@@ -4441,6 +4497,235 @@ window_damage(struct window *window, int32_t x, int32_t y,
 	      int32_t width, int32_t height)
 {
 	wl_surface_damage(window->main_surface->surface, x, y, width, height);
+}
+
+static void
+relative_pointer_handle_motion(void *data, struct _wl_relative_pointer *pointer,
+			       uint32_t time,
+			       int32_t dx_int, int32_t dx_frac,
+			       int32_t dy_int, int32_t dy_frac,
+			       int32_t dx_unaccel_int, int32_t dx_unaccel_frac,
+			       int32_t dy_unaccel_int, int32_t dy_unaccel_frac)
+{
+	struct input *input = data;
+	struct window *window = input->pointer_focus;
+
+	if (window->locked_pointer_motion_handler &&
+	    window->pointer_locked) {
+		window->locked_pointer_motion_handler(
+				window, input, time,
+				wl_double_fixed_to_double(dx_int, dx_frac),
+				wl_double_fixed_to_double(dy_int, dy_frac),
+				window->user_data);
+	}
+}
+
+static const struct _wl_relative_pointer_listener relative_pointer_listener = {
+	relative_pointer_handle_motion,
+};
+
+static void
+locked_pointer_locked(void *data,
+		      struct _wl_locked_pointer *locked_pointer)
+{
+	struct input *input = data;
+	struct window *window = input->pointer_focus;
+
+	window->pointer_locked = true;
+
+	if (window->pointer_locked_handler) {
+		window->pointer_locked_handler(window,
+					       input,
+					       window->user_data);
+	}
+}
+
+static void
+locked_pointer_unlocked(void *data,
+			struct _wl_locked_pointer *locked_pointer)
+{
+	struct input *input = data;
+	struct window *window = input->pointer_focus;
+
+	window_unlock_pointer(window);
+
+	if (window->pointer_unlocked_handler) {
+		window->pointer_unlocked_handler(window,
+						 input,
+						 window->user_data);
+	}
+}
+
+static const struct _wl_locked_pointer_listener locked_pointer_listener = {
+	locked_pointer_locked,
+	locked_pointer_unlocked,
+};
+
+int
+window_lock_pointer(struct window *window, struct input *input)
+{
+	struct _wl_relative_pointer_manager *relative_pointer_manager =
+		window->display->relative_pointer_manager;
+	struct _wl_pointer_lock *pointer_lock = window->display->pointer_lock;
+	struct _wl_relative_pointer *relative_pointer;
+	struct _wl_locked_pointer *locked_pointer;
+
+	if (!window->display->relative_pointer_manager)
+		return -1;
+
+	if (!window->display->pointer_lock)
+		return -1;
+
+	if (window->locked_pointer)
+		return -1;
+
+	if (window->confined_pointer)
+		return -1;
+
+	if (!input->pointer)
+		return -1;
+
+	relative_pointer = _wl_relative_pointer_manager_get_relative_pointer(
+		relative_pointer_manager, input->pointer);
+	_wl_relative_pointer_add_listener(relative_pointer,
+					  &relative_pointer_listener,
+					  input);
+
+	locked_pointer =
+		_wl_pointer_lock_lock_pointer(pointer_lock,
+					      window->main_surface->surface,
+					      input->seat,
+					      NULL);
+	_wl_locked_pointer_add_listener(locked_pointer,
+					&locked_pointer_listener,
+					input);
+
+	window->locked_input = input;
+	window->locked_pointer = locked_pointer;
+	window->relative_pointer = relative_pointer;
+
+	return 0;
+}
+
+void
+window_unlock_pointer(struct window *window)
+{
+	if (!window->locked_pointer)
+		return;
+
+	_wl_locked_pointer_destroy(window->locked_pointer);
+	_wl_relative_pointer_release(window->relative_pointer);
+	window->locked_pointer = NULL;
+	window->relative_pointer = NULL;
+	window->pointer_locked = false;
+	window->locked_input = NULL;
+}
+
+void
+widget_set_locked_pointer_cursor_hint(struct widget *widget,
+				      float x, float y)
+{
+	struct window *window = widget->window;
+
+	if (!window->locked_pointer)
+		return;
+
+	_wl_locked_pointer_set_cursor_position_hint(window->locked_pointer,
+						    wl_fixed_from_double(x),
+						    wl_fixed_from_double(y));
+}
+
+static void
+confined_pointer_confined(void *data,
+			  struct _wl_confined_pointer *confined_pointer)
+{
+	struct input *input = data;
+	struct window *window = input->pointer_focus;
+
+	if (window->pointer_confined_handler) {
+		window->pointer_confined_handler(window,
+						 input,
+						 window->user_data);
+	}
+}
+
+static void
+confined_pointer_unconfined(void *data,
+			    struct _wl_confined_pointer *confined_pointer)
+{
+	struct input *input = data;
+	struct window *window = input->pointer_focus;
+
+	window_unconfine_pointer(window);
+
+	if (window->pointer_unconfined_handler) {
+		window->pointer_unconfined_handler(window,
+						   input,
+						   window->user_data);
+	}
+}
+
+static const struct _wl_confined_pointer_listener confined_pointer_listener = {
+	confined_pointer_confined,
+	confined_pointer_unconfined,
+};
+
+int
+window_confine_pointer_to_widget(struct window *window,
+				 struct widget *widget,
+				 struct input *input)
+{
+	struct _wl_pointer_lock *pointer_lock = window->display->pointer_lock;
+	struct _wl_confined_pointer *confined_pointer;
+	struct wl_compositor *compositor = window->display->compositor;
+	struct wl_region *region = NULL;
+
+	if (!window->display->pointer_lock)
+		return -1;
+
+	if (window->locked_pointer)
+		return -1;
+
+	if (window->confined_pointer)
+		return -1;
+
+	if (!input->pointer)
+		return -1;
+
+	if (widget) {
+		region = wl_compositor_create_region(compositor);
+		wl_region_add(region,
+			      widget->allocation.x,
+			      widget->allocation.y,
+			      widget->allocation.width,
+			      widget->allocation.height);
+	}
+
+	confined_pointer =
+		_wl_pointer_lock_confine_pointer(pointer_lock,
+						 window->main_surface->surface,
+						 input->seat,
+						 region);
+	if (region)
+		wl_region_destroy(region);
+
+	_wl_confined_pointer_add_listener(confined_pointer,
+					  &confined_pointer_listener,
+					  input);
+
+	window->confined_pointer = confined_pointer;
+
+	return 0;
+}
+
+void
+window_unconfine_pointer(struct window *window)
+{
+	if (!window->confined_pointer)
+		return;
+
+	_wl_confined_pointer_destroy(window->confined_pointer);
+	window->confined_pointer = NULL;
 }
 
 static void
@@ -5285,6 +5570,15 @@ registry_handle_global(void *data, struct wl_registry *registry, uint32_t id,
 	} else if (strcmp(interface, "wl_seat") == 0) {
 		d->seat_version = version;
 		display_add_input(d, id);
+	} else if (strcmp(interface, "_wl_relative_pointer_manager") == 0) {
+		d->relative_pointer_manager =
+			wl_registry_bind(registry, id,
+					 &_wl_relative_pointer_manager_interface,
+					 1);
+	} else if (strcmp(interface, "_wl_pointer_lock") == 0) {
+		d->pointer_lock = wl_registry_bind(registry, id,
+						   &_wl_pointer_lock_interface,
+						   1);
 	} else if (strcmp(interface, "wl_shm") == 0) {
 		d->shm = wl_registry_bind(registry, id, &wl_shm_interface, 1);
 		wl_shm_add_listener(d->shm, &shm_listener, d);
