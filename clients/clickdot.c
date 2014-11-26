@@ -24,6 +24,7 @@
 
 #include "config.h"
 
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,6 +62,8 @@ struct clickdot {
 	struct input *cursor_timeout_input;
 	int cursor_timeout_fd;
 	struct task cursor_timeout_task;
+
+	bool pointer_confined;
 };
 
 static void
@@ -205,16 +208,32 @@ key_handler(struct window *window, struct input *input, uint32_t time,
 }
 
 static void
+toggle_pointer_confine(struct clickdot *clickdot, struct input *input)
+{
+	if (clickdot->pointer_confined) {
+		window_unconfine_pointer(clickdot->window);
+	} else {
+		window_confine_pointer_to_widget(clickdot->window,
+						 clickdot->widget,
+						 input);
+	}
+
+	clickdot->pointer_confined = !clickdot->pointer_confined;
+}
+
+static void
 button_handler(struct widget *widget,
 	       struct input *input, uint32_t time,
 	       uint32_t button,
 	       enum wl_pointer_button_state state, void *data)
 {
 	struct clickdot *clickdot = data;
+	bool is_pressed = state == WL_POINTER_BUTTON_STATE_PRESSED;
 
-	if (state == WL_POINTER_BUTTON_STATE_PRESSED && button == BTN_LEFT)
+	if (is_pressed && button == BTN_LEFT)
 		input_get_position(input, &clickdot->dot.x, &clickdot->dot.y);
-
+	else if (is_pressed && button == BTN_RIGHT)
+		toggle_pointer_confine(clickdot, input);
 	widget_schedule_redraw(widget);
 }
 
@@ -282,6 +301,14 @@ cursor_timeout_func(struct task *task, uint32_t events)
 				CURSOR_LEFT_PTR);
 }
 
+static void
+pointer_unconfined(struct window *window, struct input *input, void *data)
+{
+	struct clickdot *clickdot = data;
+
+	clickdot->pointer_confined = false;
+}
+
 static struct clickdot *
 clickdot_create(struct display *display)
 {
@@ -298,6 +325,8 @@ clickdot_create(struct display *display)
 	window_set_user_data(clickdot->window, clickdot);
 	window_set_keyboard_focus_handler(clickdot->window,
 					  keyboard_focus_handler);
+	window_set_pointer_unconfined_handler(clickdot->window,
+					      pointer_unconfined);
 
 	widget_set_redraw_handler(clickdot->widget, redraw_handler);
 	widget_set_button_handler(clickdot->widget, button_handler);
