@@ -56,6 +56,7 @@ struct clickdot {
 		int32_t x, y;
 		int32_t old_x, old_y;
 	} line;
+	bool clear_lines;
 
 	int reset;
 
@@ -203,6 +204,11 @@ key_handler(struct window *window, struct input *input, uint32_t time,
 	switch (sym) {
 	case XKB_KEY_Escape:
 		display_exit(clickdot->display);
+		break;
+	case XKB_KEY_BackSpace:
+		cairo_surface_destroy(clickdot->buffer);
+		clickdot->buffer = NULL;
+		window_schedule_redraw(clickdot->window);
 		break;
 	}
 }
