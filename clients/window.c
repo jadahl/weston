@@ -4671,14 +4671,16 @@ static const struct _wl_confined_pointer_listener confined_pointer_listener = {
 };
 
 int
-window_confine_pointer_to_widget(struct window *window,
-				 struct widget *widget,
-				 struct input *input)
+window_confine_pointer_to_rectangles(struct window *window,
+				     struct input *input,
+				     struct rectangle *rectangles,
+				     int num_rectangles)
 {
 	struct _wl_pointer_lock *pointer_lock = window->display->pointer_lock;
 	struct _wl_confined_pointer *confined_pointer;
 	struct wl_compositor *compositor = window->display->compositor;
 	struct wl_region *region = NULL;
+	int i;
 
 	if (!window->display->pointer_lock)
 		return -1;
@@ -4692,13 +4694,15 @@ window_confine_pointer_to_widget(struct window *window,
 	if (!input->pointer)
 		return -1;
 
-	if (widget) {
+	if (num_rectangles >= 1) {
 		region = wl_compositor_create_region(compositor);
-		wl_region_add(region,
-			      widget->allocation.x,
-			      widget->allocation.y,
-			      widget->allocation.width,
-			      widget->allocation.height);
+		for (i = 0; i < num_rectangles; i++) {
+			wl_region_add(region,
+				      rectangles[i].x,
+				      rectangles[i].y,
+				      rectangles[i].width,
+				      rectangles[i].height);
+		}
 	}
 
 	confined_pointer =
@@ -4716,6 +4720,24 @@ window_confine_pointer_to_widget(struct window *window,
 	window->confined_pointer = confined_pointer;
 
 	return 0;
+}
+
+int
+window_confine_pointer_to_widget(struct window *window,
+				 struct widget *widget,
+				 struct input *input)
+{
+	if (widget) {
+		return window_confine_pointer_to_rectangles(window,
+							    input,
+							    &widget->allocation,
+							    1);
+	} else {
+		return window_confine_pointer_to_rectangles(window,
+							    input,
+							    NULL,
+							    0);
+	}
 }
 
 void

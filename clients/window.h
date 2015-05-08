@@ -386,6 +386,11 @@ widget_set_locked_pointer_cursor_hint(struct widget *widget,
 				      float x, float y);
 
 int
+window_confine_pointer_to_rectangles(struct window *window,
+				     struct input *input,
+				     struct rectangle *rectangles,
+				     int num_rectangles);
+
 int
 window_confine_pointer_to_widget(struct window *window,
 				 struct widget *widget,
