@@ -990,6 +990,7 @@ noinst_PROGRAMS +=			\
 	$(shared_tests)			\
 	$(weston_tests)			\
 	$(ivi_tests)			\
+	double-fixed-benchmark		\
 	matrix-test
 
 test_module_ldflags = \
@@ -1101,6 +1102,11 @@ matrix_test_SOURCES =				\
 	shared/matrix.h
 matrix_test_CPPFLAGS = -DUNIT_TEST
 matrix_test_LDADD = -lm -lrt
+
+double_fixed_benchmark_SOURCES =		\
+	tests/double-fixed-benchmark.c		\
+	shared/util.h
+double_fixed_benchmark_LDADD = -lm
 
 if ENABLE_IVI_SHELL
 module_tests += 				\
