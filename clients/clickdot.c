@@ -311,6 +311,9 @@ key_handler(struct window *window, struct input *input, uint32_t time,
 		clickdot->buffer = NULL;
 		window_schedule_redraw(clickdot->window);
 		break;
+	case XKB_KEY_m:
+		window_set_maximized(clickdot->window,
+				     !window_is_maximized(window));
 	}
 }
 
@@ -390,6 +393,14 @@ resize_handler(struct widget *widget,
 
 	clickdot->reset = 1;
 	clickdot->complex_confine_region_dirty = true;
+
+	if (clickdot->pointer_confined) {
+		calculate_complex_confine_region(clickdot);
+		window_update_confine_rectangles(
+				clickdot->window,
+				clickdot->complex_confine_region,
+				NUM_COMPLEX_REGION_RECTS);
+	}
 }
 
 static void
